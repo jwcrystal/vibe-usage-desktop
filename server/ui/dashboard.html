@@ -50,6 +50,7 @@
   .trend-legend span { display: inline-flex; align-items: center; gap: 4px; }
   .trend-legend i { width: 7px; height: 7px; border-radius: 50%; }
   .empty { color: var(--text3); text-align: center; padding: 60px 0; font-size: 14px; }
+  .unpriced-banner { background: color-mix(in srgb, #f59e0b 12%, var(--card)); border: 1px solid color-mix(in srgb, #f59e0b 45%, var(--border)); color: #fbbf24; border-radius: var(--radius); padding: 10px 14px; font-size: 12px; margin-bottom: 14px; cursor: help; }
 
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
@@ -304,7 +305,11 @@ function computeRange() {
   return { curMin: range.from, curMax: range.to, span: range.to - range.from };
 }
 
+let loading = false;
 async function load() {
+  if (loading) return;
+  loading = true;
+  try {
   const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone);
   const { curMin, curMax, span } = computeRange();
   const mainParam = range.kind === 'preset'
@@ -327,6 +332,7 @@ async function load() {
     prev = { buckets: pj.buckets || [], sessions: (pj.sessions || []).filter((s) => sessInRange(s, prevMin, prevMax)) };
   }
   render();
+  } finally { loading = false; }
 }
 
 // Aggregate metrics (cost / tokens / session activity) from range-filtered data.
@@ -429,7 +435,14 @@ function render() {
     '<div class="value' + (c.accent ? ' accent' : '') + '">' + c.v + '</div>' +
     (c.d.txt ? '<div class="delta ' + c.d.cls + '">' + c.d.txt + '</div>' : '') +
     '</div>';
+  // Warning banner when some models in range have no price entry — their cost
+  // is silently excluded from the KPIs. Full model list in the hover tooltip.
+  const unpricedHtml = (data.unpricedModels && data.unpricedModels.length)
+    ? '<div class="unpriced-banner" data-tip="' + esc('未計價模型：\n' + data.unpricedModels.join('\n')) + '">⚠ ' +
+      data.unpricedModels.length + ' 個模型不在價格表，其費用未計入 — 補 prices.json 後即時生效</div>'
+    : '';
   $('#app').innerHTML =
+    unpricedHtml +
     filterBar(raw) +
     '<div class="cards">' + cards.map(cardHtml).join('') + '</div>' +
     '<div class="analytics-row">' + trendPanel(buckets) + heatmapPanel(buckets) + '</div>' +
@@ -878,6 +891,10 @@ function syncRangeButtons() {
 
 load();
 syncRangeButtons();
+
+// Auto-refresh: poll every 30s while visible; refresh immediately on refocus.
+setInterval(() => { if (!document.hidden) load(); }, 30000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 </script>
 </body>
 </html>
