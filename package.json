@@ -1,0 +1,20 @@
+{
+  "name": "vibe-usage-desktop",
+  "version": "0.1.0",
+  "description": "Cross-platform desktop shell for vibe-usage-local-server: Electron tray + embedded local API/dashboard (macOS / Windows / Linux).",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "sync-server": "sh scripts/sync-server.sh",
+    "smoke": "VIBE_DESKTOP_SMOKE=1 electron .",
+    "dist": "electron-builder --mac --win --linux",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "^37.0.0",
+    "electron-builder": "^26.0.0"
+  }
+}

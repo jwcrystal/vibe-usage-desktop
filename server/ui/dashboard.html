@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vibe Usage · 本地</title>
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --card: #171717;
+    --border: #292929;
+    --text: #ffffff;
+    --text2: #a1a1a1;
+    --text3: #616161;
+    --accent: #33cc99;
+    --radius: 4px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 13px;
+    padding: 24px;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+  header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+  h1 { font-size: 18px; font-weight: 700; }
+  h1 .dot { color: var(--accent); }
+  .sub { color: var(--text3); font-size: 11px; }
+  .ranges { display: flex; gap: 6px; }
+  .ranges button {
+    background: transparent; color: var(--text2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 5px 14px; cursor: pointer; font-size: 12px;
+  }
+  .ranges button.active { background: var(--card); color: var(--text); border-color: var(--text3); }
+  .controls { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  .custom { display: flex; gap: 6px; align-items: center; }
+  .custom input[type="date"] { background: var(--card); color: var(--text2); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 8px; font-size: 12px; color-scheme: dark; }
+  .custom button { background: transparent; color: var(--text2); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 10px; cursor: pointer; font-size: 12px; }
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; margin: -6px 0 16px; }
+  .filters select { background: var(--card); color: var(--text2); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 8px; font-size: 12px; color-scheme: dark; max-width: 200px; }
+  .filters .flt { display: inline-flex; align-items: center; gap: 6px; color: var(--text3); font-size: 11px; }
+  .filters #clearFilters { background: transparent; color: var(--text2); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 10px; cursor: pointer; font-size: 11px; }
+  .filters #clearFilters:hover { border-color: var(--text3); color: var(--text); }
+  .panel .ph { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .panel .ph h2 { padding: 0; border-bottom: 0; }
+  .trend-legend { display: flex; align-items: center; gap: 10px; color: var(--text3); font-size: 10px; }
+  .trend-legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .trend-legend i { width: 7px; height: 7px; border-radius: 50%; }
+  .empty { color: var(--text3); text-align: center; padding: 60px 0; font-size: 14px; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+  .card .label { color: var(--text3); font-size: 11px; margin-bottom: 6px; }
+  .card .label .help {
+    display: inline-block; width: 13px; height: 13px; line-height: 13px; text-align: center;
+    margin-left: 5px; border-radius: 50%; background: var(--border); color: var(--text3);
+    font-size: 10px; font-weight: 700; cursor: help; vertical-align: middle; user-select: none;
+  }
+  .card .label .help:hover { background: var(--text3); color: var(--bg); }
+  .card .value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .card .value.accent { color: var(--accent); }
+  .card .hint { color: var(--text3); font-size: 10px; margin-top: 3px; }
+  .card .delta { font-size: 11px; font-weight: 600; margin-top: 5px; font-variant-numeric: tabular-nums; }
+  .card .delta.up { color: var(--accent); }
+  .card .delta.down { color: #f87171; }
+
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 20px; }
+  .panel h2 { font-size: 13px; padding: 12px 16px; border-bottom: 1px solid var(--border); color: var(--text2); font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 8px 16px; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--text3); font-weight: 500; font-size: 11px; border-bottom: 1px solid var(--border); }
+  td { border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  td.name { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-cell { position: relative; }
+  .bar { position: absolute; left: 0; top: 25%; bottom: 25%; width: var(--w); background: var(--accent); opacity: 0.18; border-radius: 2px; }
+  .num { position: relative; }
+
+  /* stacked token trend */
+  .analytics-row { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); gap: 12px; margin-bottom: 20px; align-items: stretch; }
+  .analytics-row > .panel { margin-bottom: 0; min-width: 0; }
+  .stack-chart { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 8px; padding: 14px 16px 12px; }
+  .stack-y { height: 142px; display: flex; flex-direction: column; justify-content: space-between; color: var(--text3); font-size: 9px; text-align: right; padding-bottom: 18px; }
+  .daily { display: flex; align-items: flex-end; gap: 3px; height: 142px; min-width: 0; }
+  .daily .day { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; gap: 5px; }
+  .stack-bar { width: 100%; display: flex; flex-direction: column-reverse; justify-content: flex-start; transition: filter .12s; }
+  .stack-seg { width: 100%; min-height: .5px; }
+  .stack-seg.output { background: #f5f5f5; }
+  .stack-seg.input { background: #969696; }
+  .stack-seg.cache { background: #4b5563; }
+  .daily .day .lbl { min-height: 12px; color: var(--text3); font-size: 9px; text-align: center; white-space: nowrap; }
+  @media (max-width: 820px) {
+    .analytics-row { grid-template-columns: 1fr; }
+    .cards { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+    .card .value { font-size: 18px; }
+    header { align-items: flex-start; flex-direction: column; }
+    .controls { align-items: stretch; }
+    .ranges { flex-wrap: wrap; }
+    .donuts { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+  }
+  .muted { color: var(--text3); }
+
+  /* detailed records */
+  .table-scroll { width: 100%; overflow-x: auto; }
+  .records { min-width: 1120px; }
+  .records { font-variant-numeric: tabular-nums; }
+  .records th.sortable { cursor: pointer; user-select: none; }
+  .records th.sortable:hover { color: var(--text2); }
+  .records th .arrow { color: var(--text3); font-size: 10px; margin-left: 2px; }
+  .records td.name { max-width: 260px; }
+  .records .cost.priced { color: var(--accent); }
+  .records .cost.unpriced { color: var(--text3); }
+  .records .foot { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; color: var(--text3); font-size: 11px; }
+  .records .tool-badge {
+    display: inline-block; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text2); border-radius: 999px; padding: 1px 8px; font-size: 11px;
+  }
+  .records .masked { color: var(--text3); letter-spacing: 1px; }
+  .records th .eye {
+    background: transparent; border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text3); cursor: pointer; font-size: 11px; line-height: 1; padding: 2px 4px;
+    margin-right: 5px; vertical-align: middle;
+  }
+  .records th .eye:hover { color: var(--text); border-color: var(--text3); }
+
+  /* donut distributions */
+  .donuts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .donut { min-width: 0; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+  .donut .dh { min-width: 0; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .donut .dh h3 { font-size: 12px; font-weight: 600; color: var(--text2); }
+  .donut .toggle { display: flex; gap: 2px; }
+  .donut .toggle button {
+    background: transparent; color: var(--text3); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 2px 8px; cursor: pointer; font-size: 10px;
+  }
+  .donut .toggle button.active { background: var(--bg); color: var(--text); border-color: var(--text3); }
+  .donut .body { min-width: 0; display: flex; align-items: center; gap: 14px; }
+  .donut .ring { position: relative; width: 92px; height: 92px; border-radius: 50%; flex-shrink: 0; }
+  .donut .ring .hole {
+    position: absolute; inset: 12px; border-radius: 50%; background: var(--card);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .donut .ring .hole .big { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .donut .ring .hole .small { color: var(--text3); font-size: 9px; }
+  .donut .legend { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .donut .lg { min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text2); }
+  .donut .lg .dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+  .donut .lg .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .donut .lg .vv { color: var(--text3); font-variant-numeric: tabular-nums; }
+  .donut .lg .pp { color: var(--text3); width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* time-of-day heatmap */
+  .heat-wrap { padding: 14px 16px 12px; overflow: visible; }
+  .heat { width: 100%; border-collapse: collapse; }
+  .heat td, .heat th { border: 0; padding: 1px; }
+  .heat td.c { width: 3.8%; height: 20px; border-radius: 2px; }
+  .heat th.dow { text-align: left; color: var(--text3); font-weight: 400; font-size: 10px; width: 34px; padding-right: 6px; }
+  .heat th.hrd { color: var(--text3); font-weight: 400; font-size: 9px; text-align: center; }
+  .heat-scale { display: flex; justify-content: flex-end; align-items: center; gap: 4px; margin-top: 8px; font-size: 10px; color: var(--text3); }
+  .heat-scale .sw { width: 12px; height: 12px; border: 1px solid rgba(51,204,153,.16); border-radius: 2px; }
+
+  /* reusable hover popup */
+  .tooltip {
+    position: fixed; z-index: 1000; max-width: 320px; pointer-events: none;
+    background: #222; color: var(--text); border: 1px solid #454545;
+    border-radius: 6px; padding: 8px 10px; box-shadow: 0 8px 28px rgba(0,0,0,.5);
+    font-size: 11px; line-height: 1.45; white-space: pre-line;
+    opacity: 0; transform: translateY(3px); transition: opacity .1s, transform .1s;
+  }
+  .tooltip.show { opacity: 1; transform: none; }
+  .tooltip .tip-title { font-size: 12px; font-weight: 700; margin-bottom: 6px; }
+  .tooltip .tip-row { display: grid; grid-template-columns: 12px 1fr auto; gap: 6px; align-items: center; min-width: 190px; margin-top: 3px; }
+  .tooltip .tip-row.total, .tooltip .tip-row.cost { grid-template-columns: 1fr auto; }
+  .tooltip .tip-row.cost .tip-value { color: var(--accent); font-weight: 700; }
+  .tooltip .tip-dot { width: 7px; height: 7px; border-radius: 50%; }
+  .tooltip .tip-value { font-variant-numeric: tabular-nums; text-align: right; }
+  [data-tip], [data-tip-html] { cursor: help; }
+
+  /* --- interaction --- */
+  .panel, .card, .donut { transition: border-color .2s, transform .2s, box-shadow .2s; }
+  .card:hover, .donut:hover { border-color: var(--text3); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+  /* staggered reveal: pure translateY (never hides content if animation is skipped) */
+  @keyframes riseIn { from { transform: translateY(10px); } to { transform: none; } }
+  [data-reveal] { animation: riseIn .45s cubic-bezier(.22,.61,.36,1) both; animation-delay: var(--d, 0s); }
+  /* hover previews (bars stay full-height; no scale animation) */
+  .daily .day:hover .stack-bar { filter: brightness(1.25); }
+  .daily .day:hover .lbl { color: var(--text); }
+  .records tbody tr { transition: background .15s; }
+  .records tbody tr:hover { background: rgba(255,255,255,.03); }
+  .donut .lg { cursor: pointer; padding: 1px 4px; border-radius: 3px; transition: background .15s; }
+  .donut .lg:hover { background: rgba(255,255,255,.05); }
+  .heat td.c { transition: transform .12s, filter .12s; cursor: crosshair; position: relative; }
+  .heat td.c:hover { transform: scale(1.6); filter: brightness(1.25); z-index: 2; outline: 1px solid var(--text3); }
+
+  /* mobile / narrow */
+  @media (max-width: 480px) {
+    body { padding: 14px; }
+    .cards { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .card { padding: 10px 12px; }
+    .card .value { font-size: 16px; }
+    .card .delta { font-size: 10px; }
+    .ranges button { padding: 5px 10px; }
+    .donuts { grid-template-columns: 1fr; }
+    .custom { flex-wrap: wrap; }
+    .panel .ph { flex-direction: column; align-items: flex-start; }
+    .records td, .records th { padding: 8px 10px; }
+    .daily { gap: 2px; }
+    .heat td.c { width: 3.6%; }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1><span class="dot">●</span> vibe-usage <span class="sub">本地 dashboard</span></h1>
+      <div class="sub" id="meta"></div>
+    </div>
+    <div class="controls">
+      <div class="ranges" id="ranges">
+        <button data-range="today" class="active">今天</button>
+        <button data-range="hours" data-h="24">24H</button>
+        <button data-range="preset" data-days="7">7D</button>
+        <button data-range="preset" data-days="30">30D</button>
+        <button data-range="preset" data-days="90">90D</button>
+        <button data-range="custom">自定義</button>
+      </div>
+      <div class="custom" id="custom" hidden>
+        <input type="date" id="cFrom">
+        <span class="muted">至</span>
+        <input type="date" id="cTo">
+        <button id="cApply">套用</button>
+      </div>
+    </div>
+  </header>
+
+  <div id="app"><div class="empty">載入中…</div></div>
+  <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+
+<script>
+// API key injected server-side (localhost only).
+const API_KEY = __VIBE_API_KEY__;
+const API = '/api/usage';
+
+let data = null;
+// Range: { kind: 'preset', days } | { kind: 'hours', h } | { kind: 'today' } | { kind: 'custom', from, to }
+let range = { kind: 'today' };
+// Client-side dimension filters, keyed by bucket field ('' = all).
+let filters = { source: '', model: '', project: '', hostname: '' };
+const $ = (s) => document.querySelector(s);
+const money = (v) => v == null ? '—' : '$' + v.toFixed(2);
+const fmtTok = (n) => {
+  n = n || 0;
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(0) + 'K';
+  return String(n);
+};
+const fmtH = (sec) => {
+  if (!sec) return '0m';
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+  return h > 0 ? (h + 'h ' + m + 'm') : (m + 'm');
+};
+const pct = (v, total) => total > 0 ? (v / total * 100).toFixed(0) + '%' : '0%';
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtInt = (n) => (n || 0).toLocaleString('en-US');
+// Local "8月5日 09:00" style timestamp for a bucket.
+const fmtLocalDT = (iso) => {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso || '';
+  const date = d.toLocaleDateString('zh-Hant', { month: 'numeric', day: 'numeric' });
+  const time = d.toLocaleTimeString('zh-Hant', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return date + ' ' + time;
+};
+// Module-level state for the detailed-records table (sort only; all rows shown).
+let recState = { key: 'bucketStart', dir: -1 };
+// Terminal column visibility in the detailed-records table (default hidden).
+let recShowHost = false;
+
+// Help copy for the duration cards (shown on the "?" icon).
+const ACTIVE_HELP = '從 AI 開始輸出到回覆完畢算一個 turn，活躍時長 = 所有 turn 的累計時長。\n不包含排隊等待和首 Token 延遲（TTFT），只計算 AI 實際生成內容的時間。\n兩次 prompt 之間的空閒不計入。';
+const DURATION_HELP = '每個會話從首條訊息到末條訊息的時間跨度之和。\n包含中間思考、看程式碼等空閒時間，但不包含會話之間的間隔。';
+let prev = { buckets: [], sessions: [] };
+
+// Resolve the active range into absolute [curMin, curMax] instants plus span.
+function computeRange() {
+  const now = Date.now();
+  if (range.kind === 'preset') {
+    const span = range.days * 24 * 3600000;
+    return { curMin: now - span, curMax: now, span };
+  }
+  if (range.kind === 'hours') {
+    const span = range.h * 3600000;
+    return { curMin: now - span, curMax: now, span };
+  }
+  if (range.kind === 'today') {
+    const d = new Date(); d.setHours(0, 0, 0, 0);
+    const curMin = d.getTime();
+    return { curMin, curMax: now, span: now - curMin };
+  }
+  // custom
+  return { curMin: range.from, curMax: range.to, span: range.to - range.from };
+}
+
+async function load() {
+  const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const { curMin, curMax, span } = computeRange();
+  const mainParam = range.kind === 'preset'
+    ? 'days=' + range.days
+    : 'from=' + new Date(curMin).toISOString() + '&to=' + new Date(curMax).toISOString();
+  const r = await fetch(API + '?' + mainParam + '&tz=' + tz, {
+    headers: { 'Authorization': 'Bearer ' + API_KEY }
+  });
+  if (r.status === 401) { $('#app').innerHTML = '<div class="empty">認證失敗 — 檢查 server 的 API key</div>'; return; }
+  data = await r.json();
+  data.rangeMeta = { curMin, curMax, span };
+  // Previous equal-length window, for the KPI % deltas (current vs prior).
+  const prevMin = curMin - span, prevMax = curMin;
+  const rp = await fetch(API + '?from=' + new Date(prevMin).toISOString() + '&to=' + new Date(prevMax).toISOString() + '&tz=' + tz, {
+    headers: { 'Authorization': 'Bearer ' + API_KEY }
+  });
+  if (rp.status === 401) { prev = { buckets: [], sessions: [] }; }
+  else {
+    const pj = await rp.json();
+    prev = { buckets: pj.buckets || [], sessions: (pj.sessions || []).filter((s) => sessInRange(s, prevMin, prevMax)) };
+  }
+  render();
+}
+
+// Aggregate metrics (cost / tokens / session activity) from range-filtered data.
+// win = { min, max } (absolute ms) clips session duration to the visible window,
+// so a long-lived session counts only its portion inside the range.
+function sumMetrics(buckets, sess, win) {
+  return {
+    cost: buckets.reduce((s, b) => s + (b.estimatedCost || 0), 0),
+    total: buckets.reduce((s, b) => s + computeTotal(b), 0),
+    input: buckets.reduce((s, b) => s + (b.inputTokens || 0), 0),
+    output: buckets.reduce((s, b) => s + (b.outputTokens || 0), 0),
+    cached: buckets.reduce((s, b) => s + (b.cachedInputTokens || 0), 0),
+    active: sess.reduce((s, x) => s + (x.activeSeconds || 0), 0),
+    duration: sess.reduce((s, x) => s + clippedDuration(x, win), 0),
+    sessions: sess.length,
+    msgs: sess.reduce((s, x) => s + (x.messageCount || 0), 0),
+    userMsgs: sess.reduce((s, x) => s + (x.userMessageCount || 0), 0),
+  };
+}
+
+// Portion of a session's wall-clock span that lies inside [win.min, win.max].
+// Falls back to durationSeconds when the window is not clipped (unbounded).
+function clippedDuration(s, win) {
+  if (!win || !win.min || !win.max) return s.durationSeconds || 0;
+  const first = s.firstMessageAt == null ? null : new Date(s.firstMessageAt).getTime();
+  const last = s.lastMessageAt == null ? null : new Date(s.lastMessageAt).getTime();
+  if (first == null || last == null || isNaN(first) || isNaN(last)) return s.durationSeconds || 0;
+  const f = Math.max(first, win.min);
+  const l = Math.min(last, win.max);
+  return l > f ? (l - f) / 1000 : 0;
+}
+
+// A session counts if its activity window [firstMessageAt, lastMessageAt]
+// overlaps the range (matches buckets: started before but still active counts).
+function sessInRange(s, min, max) {
+  const first = s.firstMessageAt == null ? Infinity : new Date(s.firstMessageAt).getTime();
+  const last = s.lastMessageAt == null ? -Infinity : new Date(s.lastMessageAt).getTime();
+  const firstT = isNaN(first) ? Infinity : first;
+  const lastT = isNaN(last) ? -Infinity : last;
+  return firstT <= max && lastT >= min;
+}
+
+const FILTER_KEYS = ['source', 'model', 'project', 'hostname'];
+const FILTER_LABELS = { source: '工具', model: '模型', project: '項目', hostname: '終端' };
+
+// Apply the active dimension filters to buckets/sessions ('' = all).
+function matchFilters(b) {
+  for (const k of FILTER_KEYS) {
+    if (filters[k] && b[k] !== filters[k]) return false;
+  }
+  return true;
+}
+
+function render() {
+  const raw = data.buckets || [];
+  const buckets = raw.filter(matchFilters);
+  // Mirror the server's bucket window for the selected range so the Active /
+  // 總時長 / 消息 cards only count sessions in this range.
+  const { curMin: min, curMax: max, span } = data.rangeMeta;
+  const sess = (data.sessions || []).filter((s) => sessInRange(s, min, max) && matchFilters(s));
+  if (buckets.length === 0 && sess.length === 0 && !Object.values(filters).some(Boolean)) {
+    $('#app').innerHTML = '<div class="empty">暫無數據。先跑 sync: <code>npx @vibe-cafe/vibe-usage sync</code></div>';
+    $('#meta').textContent = '';
+    return;
+  }
+  const curWin = { min, max };
+  const prevWin = { min: min - span, max: min };
+  const cur = sumMetrics(buckets, sess, curWin);
+  const pr = prev
+    ? sumMetrics(prev.buckets || [], prev.sessions || [], prevWin)
+    : sumMetrics([], [], prevWin);
+
+  $('#meta').textContent = buckets.length + ' buckets · ' + sess.length + ' sessions · ' + rangeLabel() + ' · 較前期';
+
+  // delta% = (cur - prev)/prev*100; green when positive growth, gray when flat/n-a.
+  const delta = (c, p) => {
+    if (!p) return { txt: '', cls: '' };
+    const d = (c - p) / p * 100;
+    if (Math.abs(d) < 0.05) return { txt: '持平', cls: '' };
+    return { txt: (d > 0 ? '+' : '') + d.toFixed(0) + '%', cls: d >= 0 ? 'up' : 'down' };
+  };
+
+  const D = (c, p) => delta(c, p);
+  const cards = [
+    { l: '總成本', v: money(cur.cost), accent: true, d: D(cur.cost, pr.cost) },
+    { l: '總 Token', v: fmtTok(cur.total), d: D(cur.total, pr.total) },
+    { l: '輸入 Token', v: fmtTok(cur.input), d: D(cur.input, pr.input) },
+    { l: '輸出 Token', v: fmtTok(cur.output), d: D(cur.output, pr.output) },
+    { l: '緩存 Token', v: fmtTok(cur.cached), d: D(cur.cached, pr.cached) },
+    { l: 'Active 時長', v: fmtH(cur.active), accent: true, d: D(cur.active, pr.active), help: ACTIVE_HELP },
+    { l: '總時長', v: fmtH(cur.duration), d: D(cur.duration, pr.duration), help: DURATION_HELP },
+    { l: '會話數', v: fmtTok(cur.sessions), d: D(cur.sessions, pr.sessions) },
+    { l: '總消息數', v: fmtTok(cur.msgs), d: D(cur.msgs, pr.msgs) },
+    { l: '用戶消息數', v: fmtTok(cur.userMsgs), d: D(cur.userMsgs, pr.userMsgs) },
+  ];
+  const cardHtml = (c, i) =>
+    '<div class="card" data-reveal data-tip="' + esc(c.l + '\n目前：' + c.v + (c.d.txt ? '\n較上一時段：' + c.d.txt : '')) + '" style="--d:' + (i * 0.04) + 's"><div class="label">' + c.l +
+    (c.help ? '<span class="help" data-tip="' + esc(c.help) + '">?</span>' : '') +
+    '</div>' +
+    '<div class="value' + (c.accent ? ' accent' : '') + '">' + c.v + '</div>' +
+    (c.d.txt ? '<div class="delta ' + c.d.cls + '">' + c.d.txt + '</div>' : '') +
+    '</div>';
+  $('#app').innerHTML =
+    filterBar(raw) +
+    '<div class="cards">' + cards.map(cardHtml).join('') + '</div>' +
+    '<div class="analytics-row">' + trendPanel(buckets) + heatmapPanel(buckets) + '</div>' +
+    '<div class="donuts" data-reveal style="--d:.2s">' +
+    donutCard('model', '按模型', buckets) +
+    donutCard('source', '按工具', buckets) +
+    donutCard('project', '按項目', buckets) +
+    donutCard('hostname', '按終端', buckets) +
+    '</div>' +
+    recordsPanel(buckets);
+}
+
+function computeTotal(b) {
+  return (b.inputTokens || 0) + (b.outputTokens || 0) + (b.reasoningOutputTokens || 0) + (b.cachedInputTokens || 0);
+}
+
+// Human label for the active range (used in meta + prev-window delta).
+function rangeLabel() {
+  if (range.kind === 'preset') return range.days + ' 天';
+  if (range.kind === 'hours') return range.h + 'H';
+  if (range.kind === 'today') return '今天';
+  if (range.kind === 'custom') return '自定義';
+  return '';
+}
+
+// Build the dimension filter bar (工具 / 模型 / 項目 / 終端) from the raw
+// (unfiltered) buckets so all options stay available regardless of current filter.
+function filterBar(all) {
+  const opts = (key) => {
+    const seen = new Set();
+    for (const b of all) {
+      const v = b[key];
+      if (v != null && v !== '') seen.add(String(v));
+    }
+    const sel = filters[key];
+    return '<option value="">全部</option>' +
+      [...seen].sort().map((v) => '<option value="' + esc(v) + '"' + (v === sel ? ' selected' : '') + '>' + esc(v) + '</option>').join('');
+  };
+  const selects = FILTER_KEYS.map((k) =>
+    '<label class="flt"><span>' + FILTER_LABELS[k] + '</span><select data-filter="' + k + '">' + opts(k) + '</select></label>'
+  ).join('');
+  const active = Object.values(filters).some(Boolean);
+  return '<div class="filters">' + selects +
+    (active ? '<button id="clearFilters">清除篩選</button>' : '') +
+    '</div>';
+}
+
+function byKey(buckets, key) {
+  const m = new Map();
+  for (const b of buckets) {
+    const k = b[key] || 'unknown';
+    const e = m.get(k) || { cost: 0, tokens: 0, n: 0 };
+    e.cost += b.estimatedCost || 0;
+    e.tokens += computeTotal(b);
+    e.n += 1;
+    m.set(k, e);
+  }
+  return [...m.entries()].sort((a, b) => b[1].cost - a[1].cost);
+}
+
+// Local calendar date (YYYY-MM-DD) for an ISO timestamp, in the user's timezone.
+// Grouping by the raw UTC prefix is wrong across local day boundaries for
+// UTC+N users (e.g. 00:00–08:00 morning in Asia/Taipei lands the previous UTC day).
+const localDay = (iso) => {
+  if (!iso) return null;
+  const s = new Date(iso).toLocaleDateString('en-CA', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+};
+
+// Local Monday of the bucket's week, as YYYY-MM-DD.
+const localWeek = (iso) => {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return localDay(d.toISOString());
+};
+
+function trendGranularity() {
+  if (range.kind === 'today' || range.kind === 'hours') return 'hour';
+  if (range.kind === 'preset') return range.days >= 90 ? 'week' : 'day';
+  const span = data && data.rangeMeta ? data.rangeMeta.span : range.to - range.from;
+  if (span <= 48 * 3600000) return 'hour';
+  return span > 60 * 24 * 3600000 ? 'week' : 'day';
+}
+
+function trendPanel(buckets) {
+  const grain = trendGranularity();
+  const grouped = new Map();
+  for (const b of buckets) {
+    const key = grain === 'hour' ? localHour(b.bucketStart) : grain === 'week' ? localWeek(b.bucketStart) : localDay(b.bucketStart);
+    if (key == null || key < 0) continue;
+    const value = grouped.get(key) || { cost: 0, output: 0, input: 0, cache: 0 };
+    grouped.set(key, {
+      cost: value.cost + (b.estimatedCost || 0),
+      output: value.output + (b.outputTokens || 0) + (b.reasoningOutputTokens || 0),
+      input: value.input + (b.inputTokens || 0),
+      cache: value.cache + (b.cachedInputTokens || 0),
+    });
+  }
+  // Keep the selected range visible even when filters leave data on only one
+  // day. Missing local-calendar dates become zero-height bars instead of
+  // disappearing from the x-axis.
+  if (grain === 'day' && data && data.rangeMeta) {
+    const cursor = new Date(data.rangeMeta.curMin);
+    const end = new Date(data.rangeMeta.curMax);
+    cursor.setHours(0, 0, 0, 0);
+    end.setHours(0, 0, 0, 0);
+    while (cursor <= end) {
+      const key = localDay(cursor.toISOString());
+      if (key && !grouped.has(key)) grouped.set(key, { cost: 0, output: 0, input: 0, cache: 0 });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  }
+  if (grain === 'week' && data && data.rangeMeta) {
+    const cursor = new Date(data.rangeMeta.curMin);
+    const end = new Date(data.rangeMeta.curMax);
+    cursor.setHours(0, 0, 0, 0);
+    cursor.setDate(cursor.getDate() - ((cursor.getDay() + 6) % 7));
+    end.setHours(0, 0, 0, 0);
+    while (cursor <= end) {
+      const key = localDay(cursor.toISOString());
+      if (key && !grouped.has(key)) grouped.set(key, { cost: 0, output: 0, input: 0, cache: 0 });
+      cursor.setDate(cursor.getDate() + 7);
+    }
+  }
+  if (grain === 'hour') {
+    for (let h = 0; h < 24; h += 1) {
+      if (!grouped.has(h)) grouped.set(h, { cost: 0, output: 0, input: 0, cache: 0 });
+    }
+  }
+  const entries = [...grouped.entries()].sort((a, b) => grain === 'hour'
+    ? a[0] - b[0]
+    : (a[0] < b[0] ? -1 : 1));
+  const totalOf = (value) => value.output + value.input + value.cache;
+  const max = Math.max(1, ...entries.map(([, value]) => totalOf(value)));
+  const TRACK = 120;
+  const labelStep = Math.max(1, Math.ceil(entries.length / 8));
+  const bars = entries.map(([key, value], index) => {
+    const showLabel = grain === 'hour' ? key % 3 === 0 : (index % labelStep === 0 || index === entries.length - 1);
+    const label = showLabel ? (grain === 'hour' ? key + ':00' : key.slice(5).replace('-', '/')) : '';
+    const fullLabel = grain === 'hour' ? key + ':00' : grain === 'week' ? key + ' 起' : key;
+    const total = totalOf(value);
+    const tip = '<div class="tip-title">' + fullLabel + '</div>' +
+      '<div class="tip-row total"><span>總 Token</span><span class="tip-value">' + fmtInt(total) + '</span></div>' +
+      '<div class="tip-row"><i class="tip-dot" style="background:#f5f5f5"></i><span>輸出</span><span class="tip-value">' + fmtInt(value.output) + '</span></div>' +
+      '<div class="tip-row"><i class="tip-dot" style="background:#969696"></i><span>輸入</span><span class="tip-value">' + fmtInt(value.input) + '</span></div>' +
+      '<div class="tip-row"><i class="tip-dot" style="background:#4b5563"></i><span>緩存</span><span class="tip-value">' + fmtInt(value.cache) + '</span></div>' +
+      '<div class="tip-row cost"><span>費用</span><span class="tip-value">' + money(value.cost) + '</span></div>';
+    const outputH = value.output / max * TRACK;
+    const inputH = value.input / max * TRACK;
+    const cacheH = value.cache / max * TRACK;
+    return '<div class="day" data-tip-html="' + esc(tip) + '">' +
+      '<div class="stack-bar">' +
+      (value.cache ? '<div class="stack-seg cache" style="height:' + Math.max(.5, cacheH) + 'px"></div>' : '') +
+      (value.input ? '<div class="stack-seg input" style="height:' + Math.max(.5, inputH) + 'px"></div>' : '') +
+      (value.output ? '<div class="stack-seg output" style="height:' + Math.max(.5, outputH) + 'px"></div>' : '') +
+      '</div><div class="lbl">' + label + '</div></div>';
+  }
+  ).join('');
+  const legend = '<div class="trend-legend"><span><i style="background:#f5f5f5"></i>輸出</span><span><i style="background:#969696"></i>輸入</span><span><i style="background:#4b5563"></i>緩存</span></div>';
+  const title = grain === 'hour' ? '每小時趨勢' : grain === 'week' ? '每週趨勢' : '每日趨勢';
+  const panel = '<div class="panel"><div class="ph"><h2>' + title + '</h2>' + legend + '</div><div class="stack-chart"><div class="stack-y"><span>' + fmtTok(max) + '</span><span>0</span></div><div class="daily">' + (bars || '<div class="muted" style="padding:16px">無數據</div>') + '</div></div></div>';
+  return panel;
+}
+
+function distPanel(title, rows, totalCost) {
+  const max = rows.length ? rows[0][1].cost : 0;
+  const trs = rows.map(([name, e]) =>
+    '<tr><td class="name" title="' + esc(name) + '">' + esc(name) + '</td>' +
+    '<td class="bar-cell"><div class="bar" style="--w:' + (max > 0 ? (e.cost / max * 100) : 0) + '%"></div><span class="num">' + money(e.cost) + '</span></td>' +
+    '<td>' + fmtTok(e.tokens) + '</td>' +
+    '<td>' + pct(e.cost, totalCost) + '</td>' +
+    '<td>' + e.n + '</td></tr>'
+  ).join('');
+  return '<div class="panel"><h2>' + title + '</h2><table><thead><tr><th>名稱</th><th>成本</th><th>Token</th><th>佔比</th><th>Buckets</th></tr></thead><tbody>' + trs + '</tbody></table></div>';
+}
+
+// --- Donut distributions (Token/費用 toggle) ---
+const DONUT_COLORS = ['#3b82f6', '#33cc99', '#f59e0b', '#ef4444', '#a855f7', '#06b6d4', '#f97316', '#84cc16', '#ec4899', '#64748b'];
+// Per-dimension distribution: [{ name, tokens, cost }] sorted by cost desc.
+function distData(buckets, key) {
+  const m = new Map();
+  for (const b of buckets) {
+    const k = String(b[key] || 'unknown');
+    const e = m.get(k) || { name: k, tokens: 0, cost: 0 };
+    e.tokens += computeTotal(b);
+    e.cost += b.estimatedCost || 0;
+    m.set(k, e);
+  }
+  return [...m.values()].sort((a, b) => b.cost - a.cost);
+}
+// Current metric mode per dimension (tokens | cost).
+let donutMode = { model: 'tokens', source: 'tokens', project: 'tokens', hostname: 'tokens' };
+function donutCard(key, title, buckets) {
+  const data2 = distData(buckets, key);
+  const mode = donutMode[key] || 'tokens';
+  const total = data2.reduce((s, e) => s + (mode === 'tokens' ? e.tokens : e.cost), 0);
+  let acc = 0;
+  const stops = data2.slice(0, DONUT_COLORS.length).map((e, i) => {
+    const v = mode === 'tokens' ? e.tokens : e.cost;
+    const from = acc / (total || 1) * 100;
+    acc += v;
+    const to = acc / (total || 1) * 100;
+    return DONUT_COLORS[i % DONUT_COLORS.length] + ' ' + from + '% ' + to + '%';
+  }).join(', ');
+  const bg = total > 0 ? 'conic-gradient(' + stops + ')' : 'var(--bg)';
+  const centerVal = mode === 'tokens' ? fmtTok(total) : money(total);
+  const centerLab = mode === 'tokens' ? 'Tokens' : '費用';
+  const lgs = data2.slice(0, 8).map((e, i) =>
+    '<div class="lg" data-tip="' + esc(e.name + '\n' + (mode === 'tokens' ? 'Token：' + fmtInt(e.tokens) : '費用：' + money(e.cost)) + '\n佔比：' + pct(mode === 'tokens' ? e.tokens : e.cost, total)) + '"><span class="dot" style="background:' + DONUT_COLORS[i % DONUT_COLORS.length] + '"></span>' +
+    '<span class="nm">' + esc(e.name) + '</span>' +
+    '<span class="vv">' + (mode === 'tokens' ? fmtTok(e.tokens) : money(e.cost)) + '</span>' +
+    '<span class="pp">' + pct(mode === 'tokens' ? e.tokens : e.cost, total) + '</span></div>'
+  ).join('');
+  return '<div class="donut" data-donut="' + key + '">' +
+    '<div class="dh"><h3>' + title + '</h3>' +
+    '<div class="toggle">' +
+    '<button data-mode="tokens" class="' + (mode === 'tokens' ? 'active' : '') + '">Token</button>' +
+    '<button data-mode="cost" class="' + (mode === 'cost' ? 'active' : '') + '">費用</button>' +
+    '</div></div>' +
+    '<div class="body">' +
+    '<div class="ring" data-tip="' + esc(title + '\n' + centerLab + '：' + centerVal) + '" style="background:' + bg + '"><div class="hole"><span class="big">' + centerVal + '</span><span class="small">' + centerLab + '</span></div></div>' +
+    '<div class="legend">' + (lgs || '<span class="muted">無數據</span>') + '</div>' +
+    '</div></div>';
+}
+
+// Local timezone hour (0-23) and weekday (0=Sun..6=Sat) of a bucket.
+const localHour = (iso) => isNaN(new Date(iso)) ? -1 : new Date(iso).getHours();
+const localDow = (iso) => { const d = new Date(iso); return isNaN(d) ? -1 : d.getDay(); };
+
+// 7-day × 24h time-of-day heatmap (local tz), intensity = token volume.
+function heatmapPanel(buckets) {
+  const grid = Array.from({ length: 7 }, () => Array(24).fill(0));
+  for (const b of buckets) {
+    const dow = localDow(b.bucketStart), h = localHour(b.bucketStart);
+    if (dow < 0 || h < 0) continue;
+    grid[dow][h] += computeTotal(b);
+  }
+  const max = Math.max(...grid.flat(), 1);
+  const DOW = ['日', '一', '二', '三', '四', '五', '六'];
+  const hrs = Array.from({ length: 24 }, (_, h) => (h % 3 === 0) ? '<th class="hrd">' + h + '</th>' : '<th class="hrd"></th>').join('');
+  const rows = grid.map((row, dow) => {
+    const cells = row.map((v, h) => {
+      const a = v / max;
+      const alpha = a > 0 ? (0.15 + 0.75 * a) : 0.06;
+      return '<td class="c" data-tip="週' + DOW[dow] + ' ' + h + ':00\nToken：' + fmtTok(v) + '" style="background:rgba(51,204,153,' + alpha + ')"></td>';
+    }).join('');
+    return '<tr><th class="dow">週' + DOW[dow] + '</th>' + cells + '</tr>';
+  }).join('');
+  const scale = '<div class="heat-scale"><span>少</span>' +
+    '<span class="sw" style="background:rgba(51,204,153,.08)"></span>' +
+    '<span class="sw" style="background:rgba(51,204,153,.24)"></span>' +
+    '<span class="sw" style="background:rgba(51,204,153,.42)"></span>' +
+    '<span class="sw" style="background:rgba(51,204,153,.66)"></span>' +
+    '<span class="sw" style="background:rgba(51,204,153,.92)"></span><span>多</span></div>';
+  return '<div class="panel"><h2>分時活躍</h2><div class="heat-wrap"><table class="heat"><thead><tr><th></th>' + hrs + '</tr></thead><tbody>' + rows + '</tbody></table>' + scale + '</div></div>';
+}
+
+// Detailed per-bucket records: sortable columns + pagination (10/page).
+const REC_COLS = [
+  { key: 'bucketStart', label: '日期' },
+  { key: 'hostname', label: '終端' },
+  { key: 'source', label: '工具' },
+  { key: 'project', label: '項目' },
+  { key: 'model', label: '模型' },
+  { key: 'inputTokens', label: '輸入 token' },
+  { key: 'outputTokens', label: '輸出 token' },
+  { key: 'cachedInputTokens', label: '緩存 token' },
+  { key: 'cost', label: '費用' },
+];
+function recValue(b, key) {
+  switch (key) {
+    case 'cost': return b.estimatedCost == null ? null : b.estimatedCost;
+    case 'bucketStart': return new Date(b.bucketStart).getTime();
+    default: return b[key] ?? 0;
+  }
+}
+function recordsPanel(buckets) {
+  const rows = [...buckets].sort((a, b) => {
+    const av = recValue(a, recState.key), bv = recValue(b, recState.key);
+    if (av === bv) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return (av < bv ? -1 : 1) * recState.dir;
+  });
+  const total = rows.length;
+  const ths = REC_COLS.map(c => {
+    const active = c.key === recState.key;
+    const arrow = active ? (recState.dir < 0 ? '↓' : '↑') : '';
+    const eye = c.key === 'hostname'
+      ? '<button class="eye" data-eye="hostname" title="' + (recShowHost ? '隱藏終端' : '顯示終端') + '">' + (recShowHost ? '👁' : '🙈') + '</button>'
+      : '';
+    return '<th class="sortable" data-key="' + c.key + '">' + eye + c.label + '<span class="arrow">' + arrow + '</span></th>';
+  }).join('');
+  const trs = rows.map(b => {
+    const cost = b.estimatedCost == null;
+    const hostVal = recShowHost ? esc(b.hostname || '—') : '•••';
+    return '<tr>' +
+      '<td>' + fmtLocalDT(b.bucketStart) + '</td>' +
+      '<td class="name' + (recShowHost ? '' : ' masked') + '" data-tip="' + (recShowHost ? '終端：' + esc(b.hostname || '—') : '點擊眼睛顯示終端') + '">' + hostVal + '</td>' +
+      '<td><span class="tool-badge">' + esc(b.source || '—') + '</span></td>' +
+      '<td class="name" data-tip="項目：' + esc(b.project || '—') + '">' + esc(b.project || '—') + '</td>' +
+      '<td class="name" data-tip="模型：' + esc(b.model || '—') + '">' + esc(b.model || '—') + '</td>' +
+      '<td>' + fmtInt(b.inputTokens) + '</td>' +
+      '<td style="font-weight:700">' + fmtInt(b.outputTokens) + '</td>' +
+      '<td>' + fmtInt(b.cachedInputTokens) + '</td>' +
+      '<td class="cost ' + (cost ? 'unpriced' : 'priced') + '">' + (cost ? '未定價' : money(b.estimatedCost)) + '</td>' +
+      '</tr>';
+  }).join('');
+  return '<div class="panel"><h2>詳細記錄</h2><div class="table-scroll"><table class="records"><thead><tr>' + ths + '</tr></thead><tbody>' +
+    (trs || '<tr><td colspan="9" class="muted" style="text-align:center;padding:20px">無記錄</td></tr>') +
+    '</tbody></table></div>' +
+    '<div class="foot"><span>共 ' + total + ' 條</span></div></div>';
+}
+
+// The current filtered bucket set (client filter + data). Used for table re-render.
+function currentBuckets() {
+  return ((data && data.buckets) || []).filter(matchFilters);
+}
+
+document.getElementById('ranges').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  const kind = btn.dataset.range;
+  const changed = kind === 'custom' || kind !== range.kind;
+  if (kind === 'preset') { range = { kind, days: Number(btn.dataset.days) }; hideCustom(); }
+  else if (kind === 'hours') { range = { kind, h: Number(btn.dataset.h) }; hideCustom(); }
+  else if (kind === 'today') { range = { kind: 'today' }; hideCustom(); }
+  else { showCustom(); return; }
+  document.querySelectorAll('#ranges button').forEach(b => b.classList.toggle('active', b === btn));
+  if (changed) filters = { source: '', model: '', project: '', hostname: '' };
+  load();
+});
+
+function showCustom() {
+  document.getElementById('custom').hidden = false;
+  const btn = document.querySelector('#ranges [data-range="custom"]');
+  document.querySelectorAll('#ranges button').forEach(b => b.classList.toggle('active', b === btn));
+  document.getElementById('cFrom').focus();
+}
+function hideCustom() { document.getElementById('custom').hidden = true; }
+
+// Apply the chosen custom dates (local midnight → end of day, both inclusive).
+document.getElementById('cApply').addEventListener('click', () => {
+  const from = document.getElementById('cFrom').value;
+  const to = document.getElementById('cTo').value;
+  if (!from || !to) return;
+  const fromT = new Date(from + 'T00:00:00').getTime();
+  const toT = new Date(to + 'T23:59:59.999').getTime();
+  if (fromT > toT) { alert('開始日期不能晚於結束日期'); return; }
+  range = { kind: 'custom', from: fromT, to: toT };
+  showCustom();
+  filters = { source: '', model: '', project: '', hostname: '' };
+  load();
+});
+
+// Dimension filter selection.
+document.getElementById('app').addEventListener('change', (e) => {
+  const sel = e.target.closest('select[data-filter]');
+  if (sel) { filters[sel.dataset.filter] = sel.value; render(); return; }
+});
+
+// Clear-filters button (fires click, not change).
+document.getElementById('app').addEventListener('click', (e) => {
+  const clr = e.target.closest('#clearFilters');
+  if (clr) { filters = { source: '', model: '', project: '', hostname: '' }; render(); return; }
+});
+
+// Detailed-records sorting & pagination (delegated, re-renders just the table).
+document.getElementById('app').addEventListener('click', (e) => {
+  const eye = e.target.closest('button[data-eye="hostname"]');
+  if (eye) {
+    recShowHost = !recShowHost;
+    const panel = recordsPanel(currentBuckets());
+    const recPanel = document.querySelector('.panel:has(.records)');
+    if (recPanel) recPanel.outerHTML = panel;
+    return;
+  }
+  const sortEl = e.target.closest('th[data-key]');
+  if (sortEl) {
+    const key = sortEl.dataset.key;
+    if (recState.key === key) recState.dir = -recState.dir; else { recState.key = key; recState.dir = 1; }
+    const panel = recordsPanel(currentBuckets());
+    const recPanel = document.querySelector('.panel:has(.records)');
+    if (recPanel) recPanel.outerHTML = panel;
+    return;
+  }
+  const modeBtn = e.target.closest('.donut .toggle button[data-mode]');
+  if (modeBtn) {
+    const card = modeBtn.closest('[data-donut]');
+    const key = card.dataset.donut;
+    donutMode[key] = modeBtn.dataset.mode;
+    const fresh = donutCard(key, key === 'model' ? '按模型' : key === 'source' ? '按工具' : key === 'project' ? '按項目' : '按終端', currentBuckets());
+    card.outerHTML = fresh;
+    return;
+  }
+});
+
+// Styled popup shared by cards, charts, heatmap, distributions and table cells.
+const tooltip = document.getElementById('tooltip');
+let tooltipTarget = null;
+function moveTooltip(x, y) {
+  const gap = 14;
+  const w = tooltip.offsetWidth, h = tooltip.offsetHeight;
+  tooltip.style.left = Math.max(8, Math.min(x + gap, innerWidth - w - 8)) + 'px';
+  tooltip.style.top = Math.max(8, Math.min(y + gap, innerHeight - h - 8)) + 'px';
+}
+function showTooltip(target, x, y) {
+  tooltipTarget = target;
+  if (target.dataset.tipHtml) tooltip.innerHTML = target.dataset.tipHtml;
+  else tooltip.textContent = target.dataset.tip;
+  tooltip.hidden = false;
+  tooltip.classList.add('show');
+  moveTooltip(x, y);
+}
+function hideTooltip() {
+  tooltipTarget = null;
+  tooltip.classList.remove('show');
+  tooltip.hidden = true;
+}
+document.getElementById('app').addEventListener('pointerover', (e) => {
+  const target = e.target.closest('[data-tip], [data-tip-html]');
+  if (target && target !== tooltipTarget) showTooltip(target, e.clientX, e.clientY);
+});
+document.getElementById('app').addEventListener('pointermove', (e) => {
+  if (tooltipTarget) moveTooltip(e.clientX, e.clientY);
+});
+document.getElementById('app').addEventListener('pointerout', (e) => {
+  if (tooltipTarget && !tooltipTarget.contains(e.relatedTarget)) hideTooltip();
+});
+window.addEventListener('scroll', hideTooltip, { passive: true });
+
+// Reflect the active range button for the default range on first load.
+function syncRangeButtons() {
+  document.querySelectorAll('#ranges button').forEach((b) => {
+    const kind = b.dataset.range;
+    let active = false;
+    if (kind === 'preset') active = range.kind === 'preset' && range.days === Number(b.dataset.days);
+    else if (kind === 'hours') active = range.kind === 'hours' && range.h === Number(b.dataset.h);
+    else if (kind === 'today') active = range.kind === 'today';
+    else if (kind === 'custom') active = range.kind === 'custom';
+    b.classList.toggle('active', active);
+  });
+}
+
+load();
+syncRangeButtons();
+</script>
+</body>
+</html>
