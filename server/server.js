@@ -172,10 +172,16 @@ const router = {
     });
     // Compute estimatedCost live from the current price table.
     for (const b of buckets) b.estimatedCost = estimateCost(b);
+    // Distinct models with no price entry — surfaced so undercounted KPIs
+    // are visible instead of silently low.
+    const unpricedModels = [...new Set(
+      buckets.filter((b) => b.estimatedCost === null).map((b) => b.model),
+    )].sort();
     sendJson(res, 200, {
       buckets,
       sessions: data.sessions,
       hasAnyData: data.buckets.length > 0,
+      unpricedModels,
     });
   },
 

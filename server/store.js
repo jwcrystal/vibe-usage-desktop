@@ -11,19 +11,62 @@ export function getDataPath() {
   return DATA_FILE;
 }
 
-export function loadData() {
-  if (!existsSync(DATA_FILE)) return { buckets: [], sessions: [] };
+const BAK_FILE = `${DATA_FILE}.bak`;
+const CORRUPT_FILE = `${DATA_FILE}.corrupt`;
+let backedUpThisProcess = false;
+
+function tryRead(file) {
   try {
-    const parsed = JSON.parse(readFileSync(DATA_FILE, 'utf-8'));
-    return {
-      buckets: Array.isArray(parsed.buckets) ? parsed.buckets : [],
-      sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
-    };
+    return readFileSync(file, 'utf-8');
   } catch {
-    // Corrupt data file must not lose everything silently — surface as empty
-    // but keep the raw file untouched for manual recovery.
-    return { buckets: [], sessions: [] };
+    return null;
   }
+}
+
+function tryParse(text) {
+  if (text == null) return null;
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === 'object') return parsed;
+  } catch { /* fall through */ }
+  return null;
+}
+
+function normalize(parsed) {
+  return {
+    buckets: Array.isArray(parsed.buckets) ? parsed.buckets : [],
+    sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
+  };
+}
+
+export function loadData() {
+  const raw = tryRead(DATA_FILE);
+  const parsed = tryParse(raw);
+  if (parsed) {
+    // One backup per process: a snapshot of the last healthy file, so a torn
+    // write or disk corruption never loses everything.
+    if (!backedUpThisProcess) {
+      backedUpThisProcess = true;
+      try {
+        writeFileSync(BAK_FILE, raw);
+      } catch { /* best-effort */ }
+    }
+    return normalize(parsed);
+  }
+  if (raw != null) {
+    // Corrupt main file: preserve it for manual inspection before any later
+    // save overwrites it, then try the backup.
+    console.warn(`[store] ${DATA_FILE} unreadable — preserving as ${CORRUPT_FILE} and trying ${BAK_FILE}`);
+    try {
+      if (!existsSync(CORRUPT_FILE)) writeFileSync(CORRUPT_FILE, raw);
+    } catch { /* best-effort */ }
+  }
+  const bak = tryParse(tryRead(BAK_FILE));
+  if (bak) {
+    console.warn(`[store] recovered from ${BAK_FILE}`);
+    return normalize(bak);
+  }
+  return { buckets: [], sessions: [] };
 }
 
 function saveData(data) {
