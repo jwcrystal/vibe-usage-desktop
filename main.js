@@ -84,8 +84,15 @@ function createTray() {
   tray.on('click', () => { if (!win) createWindow(); win.show(); win.focus(); });
 }
 
+app.on('before-quit', () => { app.isQuitting = true; });
+
 app.on('second-instance', () => {
   if (win) { win.show(); win.focus(); }
+});
+
+app.on('activate', () => {
+  if (!win) createWindow();
+  else { win.show(); win.focus(); }
 });
 
 app.on('window-all-closed', (e) => {
