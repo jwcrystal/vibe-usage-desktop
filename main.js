@@ -1,5 +1,5 @@
 import { app, BrowserWindow, Tray, Menu, dialog, nativeImage, ipcMain } from 'electron';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs';
 import { join, dirname, sep } from 'node:path';
@@ -112,7 +112,22 @@ function daemonServiceFile() {
   return null;
 }
 
-const daemonInstalled = () => Boolean(daemonServiceFile() && existsSync(daemonServiceFile()));
+// Mirrors the CLI's installed-state semantics (daemon-service.js): launchd/
+// systemd = service file exists; taskscheduler = live task OR leftover
+// daemon-task.xml counts as installed, so the checkbox can always drive a
+// clean uninstall. "Already installed" install-side checks live task only.
+function daemonInstalled() {
+  if (process.platform === 'win32') {
+    let task = false;
+    try {
+      const r = spawnSync('schtasks', ['/Query', '/TN', 'vibe-usage'], { stdio: 'ignore', windowsHide: true });
+      task = r.status === 0;
+    } catch { /* schtasks missing — fall back to the file check */ }
+    return task || existsSync(join(homedir(), '.vibe-usage', 'daemon-task.xml'));
+  }
+  const f = daemonServiceFile();
+  return Boolean(f && existsSync(f));
+}
 
 function run(cmd, args, extraEnv = {}) {
   return new Promise((resolve) => {
