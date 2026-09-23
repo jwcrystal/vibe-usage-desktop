@@ -2,7 +2,7 @@ import { app, BrowserWindow, Tray, Menu, dialog, nativeImage } from 'electron';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
@@ -129,7 +129,11 @@ function run(cmd, args, extraEnv = {}) {
 // machine. Fallbacks: PATH binary; the launchd plist the CLI itself wrote
 // (ProgramArguments = [node, script, 'daemon']) so repo-checkout installs work.
 const bundledCli = () => {
-  const bin = join(__dirname, 'cli', 'bin', 'vibe-usage.js');
+  let bin = join(__dirname, 'cli', 'bin', 'vibe-usage.js');
+  // In a packaged app the CLI lives in app.asar.unpacked (see electron-builder
+  // asarUnpack) because ELECTRON_RUN_AS_NODE cannot execute scripts inside the
+  // asar archive — translate the asar path Electron reports to the real one.
+  bin = bin.replace(`${sep}app.asar${sep}`, `${sep}app.asar.unpacked${sep}`);
   return existsSync(bin) ? { cmd: process.execPath, pre: [bin], env: { ELECTRON_RUN_AS_NODE: '1' } } : null;
 };
 
