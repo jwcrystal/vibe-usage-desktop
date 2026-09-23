@@ -35,6 +35,12 @@
     border-radius: var(--radius); padding: 5px 14px; cursor: pointer; font-size: 12px;
   }
   .ranges button.active { background: var(--card); color: var(--text); border-color: var(--text3); }
+  .actions { display: flex; gap: 6px; align-items: center; }
+  #refresh { background: transparent; color: var(--text2); border: 1px solid var(--border); border-radius: var(--radius); padding: 5px 14px; cursor: pointer; font-size: 12px; }
+  #refresh:hover { border-color: var(--text3); color: var(--text); }
+  #refresh .icon { display: inline-block; }
+  #refresh.spinning .icon { animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
   .controls { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
   .custom { display: flex; gap: 6px; align-items: center; }
   .custom input[type="date"] { background: var(--card); color: var(--text2); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 8px; font-size: 12px; color-scheme: dark; }
@@ -221,13 +227,16 @@
       <div class="sub" id="meta"></div>
     </div>
     <div class="controls">
-      <div class="ranges" id="ranges">
-        <button data-range="today" class="active">今天</button>
-        <button data-range="hours" data-h="24">24H</button>
-        <button data-range="preset" data-days="7">7D</button>
-        <button data-range="preset" data-days="30">30D</button>
-        <button data-range="preset" data-days="90">90D</button>
-        <button data-range="custom">自定義</button>
+      <div class="actions">
+        <div class="ranges" id="ranges">
+          <button data-range="today" class="active">今天</button>
+          <button data-range="hours" data-h="24">24H</button>
+          <button data-range="preset" data-days="7">7D</button>
+          <button data-range="preset" data-days="30">30D</button>
+          <button data-range="preset" data-days="90">90D</button>
+          <button data-range="custom">自定義</button>
+        </div>
+        <button id="refresh" title="立即更新資料"><span class="icon">↻</span> 更新</button>
       </div>
       <div class="custom" id="custom" hidden>
         <input type="date" id="cFrom">
@@ -309,6 +318,7 @@ let loading = false;
 async function load() {
   if (loading) return;
   loading = true;
+  document.getElementById('refresh')?.classList.add('spinning');
   try {
   const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone);
   const { curMin, curMax, span } = computeRange();
@@ -332,7 +342,7 @@ async function load() {
     prev = { buckets: pj.buckets || [], sessions: (pj.sessions || []).filter((s) => sessInRange(s, prevMin, prevMax)) };
   }
   render();
-  } finally { loading = false; }
+  } finally { loading = false; document.getElementById('refresh')?.classList.remove('spinning'); }
 }
 
 // Aggregate metrics (cost / tokens / session activity) from range-filtered data.
@@ -405,7 +415,7 @@ function render() {
     ? sumMetrics(prev.buckets || [], prev.sessions || [], prevWin)
     : sumMetrics([], [], prevWin);
 
-  $('#meta').textContent = buckets.length + ' buckets · ' + sess.length + ' sessions · ' + rangeLabel() + ' · 較前期';
+  $('#meta').textContent = buckets.length + ' buckets · ' + sess.length + ' sessions · ' + rangeLabel() + ' · 較前期 · 更新於 ' + new Date().toLocaleTimeString('zh-Hant', { hour12: false });
 
   // delta% = (cur - prev)/prev*100; green when positive growth, gray when flat/n-a.
   const delta = (c, p) => {
@@ -892,8 +902,10 @@ function syncRangeButtons() {
 load();
 syncRangeButtons();
 
-// Auto-refresh: poll every 30s while visible; refresh immediately on refocus.
-setInterval(() => { if (!document.hidden) load(); }, 30000);
+// Auto-refresh: poll every 60s while visible; refresh immediately on refocus.
+// Manual refresh button covers "want it now" without shorter polling.
+document.getElementById('refresh').addEventListener('click', () => load());
+setInterval(() => { if (!document.hidden) load(); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 </script>
 </body>
