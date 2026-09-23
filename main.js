@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, dialog, nativeImage } from 'electron';
+import { app, BrowserWindow, Tray, Menu, dialog, nativeImage, ipcMain } from 'electron';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs';
@@ -49,6 +49,7 @@ function createWindow() {
     title: 'Vibe Usage Desktop',
     icon: join(__dirname, 'build', 'icon.png'),
     show: false,
+    webPreferences: { preload: join(__dirname, 'preload.js') },
   });
   win.loadURL(DASHBOARD_URL);
   win.once('ready-to-show', () => win.show());
@@ -215,6 +216,23 @@ async function uninstallDaemon() {
 
 
 app.on('before-quit', () => { app.isQuitting = true; });
+
+// Dashboard "更新" button: run a one-shot `vibe-usage sync` (parse local usage
+// files -> POST to this server), then the caller re-fetches the view. Guarded
+// so overlapping clicks share one sync.
+let syncing = null;
+ipcMain.handle('vibe-sync', () => {
+  if (syncing) return syncing;
+  syncing = (async () => {
+    const cli = await findDaemonCli();
+    if (!cli) return { ok: false, out: 'vibe-usage CLI not found' };
+    const res = await run(cli.cmd, [...cli.pre, 'sync'], cli.env);
+    return { ok: res.ok, out: res.out.slice(-2000) };
+  })();
+  const done = syncing.finally(() => { syncing = null; });
+  syncing = done;
+  return done;
+});
 
 app.on('second-instance', () => {
   if (win) { win.show(); win.focus(); }

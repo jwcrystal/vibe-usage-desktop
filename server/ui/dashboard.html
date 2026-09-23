@@ -903,8 +903,17 @@ load();
 syncRangeButtons();
 
 // Auto-refresh: poll every 60s while visible; refresh immediately on refocus.
-// Manual refresh button covers "want it now" without shorter polling.
-document.getElementById('refresh').addEventListener('click', () => load());
+// Manual refresh: in the Electron app, first run a one-shot CLI sync (parse
+// local usage files -> POST) via window.vibeDesktop, then re-fetch the view;
+// in a plain browser vibeDesktop is absent and this is display-only.
+async function refreshNow() {
+  const btn = document.getElementById('refresh');
+  btn.classList.add('spinning');
+  try { if (window.vibeDesktop) await window.vibeDesktop.syncNow(); } catch { /* sync best-effort — still refresh the view */ }
+  btn.classList.remove('spinning');
+  load();
+}
+document.getElementById('refresh').addEventListener('click', refreshNow);
 setInterval(() => { if (!document.hidden) load(); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 </script>
