@@ -1,12 +1,16 @@
 #!/bin/sh
-# Vendor the zero-dependency vibe-usage CLI (bin/ + src/) from the sibling
-# vibe-usage repo into ./cli so the Electron app can run the daemon without
-# requiring a global npm install. Re-run after CLI changes.
+# Vendor the zero-dependency vibe-usage CLI (bin/ + src/ + package.json) from
+# the sibling vibe-usage repo into ./cli so the Electron app can run the daemon
+# without requiring a global npm install.
+#
+# Called automatically before `start` and `dist*` — with a sibling checkout
+# present the snapshot can never go stale. Without one, keep the committed
+# snapshot and exit 0 so other machines / CI still build.
 set -e
 SRC="${1:-../vibe-usage}"
-if [ ! -f "$SRC/bin/vibe-usage.js" ]; then
-  echo "error: $SRC/bin/vibe-usage.js not found (pass path as arg 1)" >&2
-  exit 1
+if [ ! -d "$SRC/.git" ]; then
+  echo "warn: $SRC is not a git checkout — keeping vendored cli/ snapshot."
+  exit 0
 fi
 rm -rf cli
 mkdir -p cli

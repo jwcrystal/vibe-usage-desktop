@@ -5,15 +5,16 @@
   "type": "module",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
+    "preflight": "sh scripts/sync-cli.sh",
+    "start": "npm run preflight && electron .",
     "sync-server": "sh scripts/sync-server.sh",
     "smoke": "VIBE_DESKTOP_SMOKE=1 electron .",
-    "dist": "electron-builder --mac --win --linux",
-    "dist:mac": "electron-builder --mac",
-    "dist:win": "electron-builder --win",
-    "dist:win:x64": "electron-builder --win --x64",
-    "dist:linux": "electron-builder --linux",
-    "dist:linux:x64": "electron-builder --linux --x64"
+    "dist": "npm run preflight && electron-builder --mac --win --linux",
+    "dist:mac": "npm run preflight && electron-builder --mac",
+    "dist:win": "npm run preflight && electron-builder --win",
+    "dist:win:x64": "npm run preflight && electron-builder --win --x64",
+    "dist:linux": "npm run preflight && electron-builder --linux",
+    "dist:linux:x64": "npm run preflight && electron-builder --linux --x64"
   },
   "devDependencies": {
     "electron": "^37.0.0",
