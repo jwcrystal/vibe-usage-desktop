@@ -21,6 +21,11 @@ let tray = null;
 let portInUse = false;
 
 async function startServer() {
+  // Must run before importing server.js: the server resolves its expected
+  // API key from config.json once, at module-load time. Without this, a
+  // fresh install (no config) runs the server in permissive mode while the
+  // dashboard gets an empty injected key -> every /api/usage call 401s.
+  ensureLocalCliConfig();
   const { server, start } = await import('./server/server.js');
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
