@@ -145,7 +145,7 @@
     border-radius: var(--radius); padding: 2px 8px; cursor: pointer; font-size: 10px;
   }
   .donut .toggle button.active { background: var(--bg); color: var(--text); border-color: var(--text3); }
-  .donut .body { min-width: 0; display: flex; align-items: center; gap: 14px; }
+  .donut .body { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; }
   .donut .ring { position: relative; width: 92px; height: 92px; border-radius: 50%; flex-shrink: 0; }
   .donut .ring .hole {
     position: absolute; inset: 12px; border-radius: 50%; background: var(--card);
@@ -153,10 +153,10 @@
   }
   .donut .ring .hole .big { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .donut .ring .hole .small { color: var(--text3); font-size: 9px; }
-  .donut .legend { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .donut .legend { width: 100%; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   .donut .lg { min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text2); }
   .donut .lg .dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
-  .donut .lg .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .donut .lg .nm { flex: 1; min-width: 0; word-break: break-word; }
   .donut .lg .vv { color: var(--text3); font-variant-numeric: tabular-nums; }
   .donut .lg .pp { color: var(--text3); width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
 
@@ -262,11 +262,15 @@ let range = { kind: 'today' };
 let filters = { source: '', model: '', project: '', hostname: '' };
 const $ = (s) => document.querySelector(s);
 const money = (v) => v == null ? '—' : '$' + v.toFixed(2);
+// Compact token counts, K→M→B→T (mainstream dashboard ladder). Values that
+// would display as "1000K"-style rollovers bump to the next tier (CLDR behavior).
 const fmtTok = (n) => {
   n = n || 0;
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-  if (n >= 1e3) return (n / 1e3).toFixed(0) + 'K';
-  return String(n);
+  const units = ['', 'K', 'M', 'B', 'T'];
+  let i = 0;
+  while (n >= 1000 && i < units.length - 1) { n /= 1000; i += 1; }
+  if (i > 0 && i < units.length - 1 && n >= 999.5) { n /= 1000; i += 1; }
+  return i === 0 ? String(n) : n.toFixed(i === 1 ? 0 : 1) + units[i];
 };
 const fmtH = (sec) => {
   if (!sec) return '0m';
@@ -632,7 +636,9 @@ function distPanel(title, rows, totalCost) {
 }
 
 // --- Donut distributions (Token/費用 toggle) ---
-const DONUT_COLORS = ['#3b82f6', '#33cc99', '#f59e0b', '#ef4444', '#a855f7', '#06b6d4', '#f97316', '#84cc16', '#ec4899', '#64748b'];
+const DONUT_COLORS = ['#3b82f6', '#33cc99', '#f59e0b', '#ef4444', '#a855f7', '#06b6d4', '#f97316', '#84cc16'];
+// "其他" aggregate color for items past the top 8 (kept distinct from real categories).
+const OTHER_COLOR = '#64748b';
 // Per-dimension distribution: [{ name, tokens, cost }] sorted by cost desc.
 function distData(buckets, key) {
   const m = new Map();
@@ -647,27 +653,50 @@ function distData(buckets, key) {
 }
 // Current metric mode per dimension (tokens | cost).
 let donutMode = { model: 'tokens', source: 'tokens', project: 'tokens', hostname: 'tokens' };
+// Legend caps at the top 8; items beyond that collapse into one gray「其他」row
+// so ring, legend and center total always account for exactly the same data.
+const DONUT_TOP = 8;
 function donutCard(key, title, buckets) {
   const data2 = distData(buckets, key);
   const mode = donutMode[key] || 'tokens';
-  const total = data2.reduce((s, e) => s + (mode === 'tokens' ? e.tokens : e.cost), 0);
+  const val = (e) => mode === 'tokens' ? e.tokens : e.cost;
+  const total = data2.reduce((s, e) => s + val(e), 0);
+  const top = data2.slice(0, DONUT_TOP);
+  const rest = data2.slice(DONUT_TOP);
+  const other = rest.length ? {
+    name: '其他（' + rest.length + '）',
+    tokens: rest.reduce((s, e) => s + e.tokens, 0),
+    cost: rest.reduce((s, e) => s + e.cost, 0),
+    items: rest,
+  } : null;
+  const slices = other ? top.concat([other]) : top;
   let acc = 0;
-  const stops = data2.slice(0, DONUT_COLORS.length).map((e, i) => {
-    const v = mode === 'tokens' ? e.tokens : e.cost;
+  const stops = slices.map((e, i) => {
     const from = acc / (total || 1) * 100;
-    acc += v;
+    acc += val(e);
     const to = acc / (total || 1) * 100;
-    return DONUT_COLORS[i % DONUT_COLORS.length] + ' ' + from + '% ' + to + '%';
+    return (e === other ? OTHER_COLOR : DONUT_COLORS[i]) + ' ' + from + '% ' + to + '%';
   }).join(', ');
   const bg = total > 0 ? 'conic-gradient(' + stops + ')' : 'var(--bg)';
   const centerVal = mode === 'tokens' ? fmtTok(total) : money(total);
   const centerLab = mode === 'tokens' ? 'Tokens' : '費用';
-  const lgs = data2.slice(0, 8).map((e, i) =>
-    '<div class="lg" data-tip="' + esc(e.name + '\n' + (mode === 'tokens' ? 'Token：' + fmtInt(e.tokens) : '費用：' + money(e.cost)) + '\n佔比：' + pct(mode === 'tokens' ? e.tokens : e.cost, total)) + '"><span class="dot" style="background:' + DONUT_COLORS[i % DONUT_COLORS.length] + '"></span>' +
-    '<span class="nm">' + esc(e.name) + '</span>' +
-    '<span class="vv">' + (mode === 'tokens' ? fmtTok(e.tokens) : money(e.cost)) + '</span>' +
-    '<span class="pp">' + pct(mode === 'tokens' ? e.tokens : e.cost, total) + '</span></div>'
-  ).join('');
+  const lgRow = (e, i) => {
+    const isOther = e === other;
+    // "其他" tooltip lists the collapsed items so the row is never a dead end.
+    const tip = isOther
+      ? e.name + '\n' + e.items.slice(0, 10).map((x) =>
+          '· ' + x.name + '：' + (mode === 'tokens' ? fmtTok(x.tokens) : money(x.cost)) + '（' + pct(val(x), total) + '）').join('\n') +
+        (e.items.length > 10 ? '\n…另有 ' + (e.items.length - 10) + ' 項' : '')
+      : e.name + '\n' + (mode === 'tokens' ? 'Token：' + fmtInt(e.tokens) : '費用：' + money(e.cost)) + '\n佔比：' + pct(val(e), total);
+    const dotStyle = isOther
+      ? 'border:1px dashed ' + OTHER_COLOR + ';background:transparent'
+      : 'background:' + DONUT_COLORS[i];
+    return '<div class="lg" data-tip="' + esc(tip) + '"><span class="dot" style="' + dotStyle + '"></span>' +
+      '<span class="nm">' + esc(e.name) + '</span>' +
+      '<span class="vv">' + (mode === 'tokens' ? fmtTok(e.tokens) : money(e.cost)) + '</span>' +
+      '<span class="pp">' + pct(val(e), total) + '</span></div>';
+  };
+  const lgs = slices.map(lgRow).join('');
   return '<div class="donut" data-donut="' + key + '">' +
     '<div class="dh"><h3>' + title + '</h3>' +
     '<div class="toggle">' +
