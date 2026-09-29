@@ -261,7 +261,9 @@ let range = { kind: 'today' };
 // Client-side dimension filters, keyed by bucket field ('' = all).
 let filters = { source: '', model: '', project: '', hostname: '' };
 const $ = (s) => document.querySelector(s);
-const money = (v) => v == null ? '—' : '$' + v.toFixed(2);
+// Adaptive precision: sub-dollar amounts keep 4 decimals so sub-cent costs
+// don't collapse to "$0.00"; >= $1 uses standard 2 decimals.
+const money = (v) => v == null ? '—' : '$' + (v >= 1 ? v.toFixed(2) : v.toFixed(4));
 // Compact token counts, K→M→B→T (mainstream dashboard ladder). Values that
 // would display as "1000K"-style rollovers bump to the next tier (CLDR behavior).
 const fmtTok = (n) => {
