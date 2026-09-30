@@ -79,6 +79,7 @@
   table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   th, td { text-align: right; padding: 8px 16px; }
   th:first-child, td:first-child { text-align: left; }
+  th:last-child, td:last-child { padding-right: 20px; }
   th { color: var(--text3); font-weight: 500; font-size: 11px; border-bottom: 1px solid var(--border); }
   td { border-bottom: 1px solid var(--border); }
   tr:last-child td { border-bottom: none; }
@@ -256,6 +257,9 @@ const API_KEY = __VIBE_API_KEY__;
 const API = '/api/usage';
 
 let data = null;
+// Signature of the last-rendered payload; load() skips the full #app rebuild
+// (charts/table repaint flicker) when nothing changed and only refreshes #meta.
+let lastSig = null;
 // Range: { kind: 'preset', days } | { kind: 'hours', h } | { kind: 'today' } | { kind: 'custom', from, to }
 let range = { kind: 'today' };
 // Client-side dimension filters, keyed by bucket field ('' = all).
@@ -347,8 +351,29 @@ async function load() {
     const pj = await rp.json();
     prev = { buckets: pj.buckets || [], sessions: (pj.sessions || []).filter((s) => sessInRange(s, prevMin, prevMax)) };
   }
-  render();
+  renderIfChanged();
   } finally { loading = false; document.getElementById('refresh')?.classList.remove('spinning'); }
+}
+
+// Refresh only the #meta line (poll proof) when the underlying data is unchanged.
+function updateMetaOnly() {
+  const { curMin: min, curMax: max } = data.rangeMeta || {};
+  const buckets = ((data && data.buckets) || []).filter(matchFilters);
+  const sess = ((data && data.sessions) || []).filter((s) => sessInRange(s, min, max) && matchFilters(s));
+  $('#meta').textContent = buckets.length + ' buckets · ' + sess.length + ' sessions · ' + rangeLabel() + ' · 較前期 · 更新於 ' + new Date().toLocaleTimeString('zh-Hant', { hour12: false });
+}
+
+// Rebuild #app only when the payload actually changed; View Transitions gives a
+// crossfade instead of a hard swap (plain render on unsupported browsers).
+// NOTE: rangeMeta is excluded — rolling windows embed Date.now() and would
+// defeat the comparison. `range` (user selection) + data + prev is enough.
+function renderIfChanged() {
+  const sig = JSON.stringify([range, data.buckets, data.sessions, prev]);
+  if (sig === lastSig) { updateMetaOnly(); return; }
+  const first = lastSig === null;
+  lastSig = sig;
+  if (!first && document.startViewTransition) document.startViewTransition(render);
+  else render();
 }
 
 // Aggregate metrics (cost / tokens / session activity) from range-filtered data.
@@ -605,10 +630,10 @@ function trendPanel(buckets) {
     const fullLabel = grain === 'hour' ? key + ':00' : grain === 'week' ? key + ' 起' : key;
     const total = totalOf(value);
     const tip = '<div class="tip-title">' + fullLabel + '</div>' +
-      '<div class="tip-row total"><span>總 Token</span><span class="tip-value">' + fmtInt(total) + '</span></div>' +
-      '<div class="tip-row"><i class="tip-dot" style="background:#f5f5f5"></i><span>輸出</span><span class="tip-value">' + fmtInt(value.output) + '</span></div>' +
-      '<div class="tip-row"><i class="tip-dot" style="background:#969696"></i><span>輸入</span><span class="tip-value">' + fmtInt(value.input) + '</span></div>' +
-      '<div class="tip-row"><i class="tip-dot" style="background:#4b5563"></i><span>緩存</span><span class="tip-value">' + fmtInt(value.cache) + '</span></div>' +
+      '<div class="tip-row total"><span>總 Token</span><span class="tip-value">' + fmtTok(total) + '</span></div>' +
+      '<div class="tip-row"><i class="tip-dot" style="background:#f5f5f5"></i><span>輸出</span><span class="tip-value">' + fmtTok(value.output) + '</span></div>' +
+      '<div class="tip-row"><i class="tip-dot" style="background:#969696"></i><span>輸入</span><span class="tip-value">' + fmtTok(value.input) + '</span></div>' +
+      '<div class="tip-row"><i class="tip-dot" style="background:#4b5563"></i><span>緩存</span><span class="tip-value">' + fmtTok(value.cache) + '</span></div>' +
       '<div class="tip-row cost"><span>費用</span><span class="tip-value">' + money(value.cost) + '</span></div>';
     const outputH = value.output / max * TRACK;
     const inputH = value.input / max * TRACK;
@@ -754,7 +779,7 @@ const REC_COLS = [
   { key: 'model', label: '模型' },
   { key: 'inputTokens', label: '輸入 token' },
   { key: 'outputTokens', label: '輸出 token' },
-  { key: 'cachedInputTokens', label: '緩存 token' },
+  { key: 'cachedInputTokens', label: '緩存讀' },
   { key: 'cacheCreation5mTokens', label: '緩存寫' },
   { key: 'cost', label: '費用' },
 ];
