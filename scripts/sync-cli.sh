@@ -1,7 +1,9 @@
 #!/bin/sh
 # Vendor the zero-dependency vibe-usage CLI (bin/ + src/ + package.json) from
 # the sibling vibe-usage repo into ./cli so the Electron app can run the daemon
-# without requiring a global npm install.
+# without requiring a global npm install. The sibling checkout should be a
+# clone of the project fork https://github.com/jwcrystal/vibe-usage
+# (based on vibe-cafe/vibe-usage).
 #
 # Called automatically before `start` and `dist*` — with a sibling checkout
 # present the snapshot can never go stale. Without one, keep the committed
@@ -17,18 +19,25 @@ mkdir -p cli
 # Vendor the committed state (HEAD), not the working tree — WIP stays out.
 git -C "$SRC" archive HEAD bin src package.json | tar -x -C cli
 cat > cli/NOTICE <<'EOF'
-This directory is a vendored snapshot of the upstream CLI
-@vibe-cafe/vibe-usage (bin/ + src/ + package.json):
+This directory is a vendored snapshot of the vibe-usage CLI
+(bin/ + src/ + package.json), taken from this project's fork:
+
+  https://github.com/jwcrystal/vibe-usage
+
+The fork is based on the upstream project and may carry local
+modifications on top of it:
 
   https://github.com/vibe-cafe/vibe-usage
 
 Re-synced from a sibling checkout by scripts/sync-cli.sh.
-Upstream code is (c) vibe-cafe, licensed MIT (declared in the vendored
-package.json). The MIT notice below applies to all code in this directory.
+Upstream code is (c) vibe-cafe, MIT (declared in the vendored package.json);
+fork modifications are (c) CrytsalTraveler, MIT. The notice below applies to
+all code in this directory.
 
 MIT License
 
 Copyright (c) vibe-cafe / vibe-usage contributors
+Copyright (c) 2026 CrytsalTraveler (fork modifications)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

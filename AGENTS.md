@@ -14,3 +14,7 @@
 
 - `README.md`（英，**權威版**）與 `README.zh-TW.md`（繁中譯本）內容必須一致——改任一邊，同一個 commit 內同步另一邊
 - 段落、程式碼區塊、表格、連結一一對應；錨點依各語言標題各自維護
+
+## cli/ vendor 來源
+
+`cli/` 由 `scripts/sync-cli.sh` 從 sibling checkout 的 HEAD vendor——來源應為本專案 fork `jwcrystal/vibe-usage`（基於 `vibe-cafe/vibe-usage`）。對 CLI 的修改進 fork 的分支，不要直接改 `cli/`（會被下次 sync 蓋掉）。

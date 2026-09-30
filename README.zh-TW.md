@@ -22,7 +22,7 @@ npm start
 
 ```bash
 git clone https://github.com/jwcrystal/vibe-usage-local-server ../vibe-usage-local-server
-git clone https://github.com/vibe-cafe/vibe-usage ../vibe-usage
+git clone https://github.com/jwcrystal/vibe-usage ../vibe-usage   # vibe-cafe/vibe-usage 的 fork
 npm run sync-server   # vendor ../vibe-usage-local-server/src -> ./server
 npm run preflight     # vendor ../vibe-usage @HEAD -> ./cli
 ```
@@ -54,7 +54,7 @@ magick -background none icon-source.svg -resize 1024x1024 build/icon.png
 
 ## 致謝
 
-- [`cli/`](cli/) — [vibe-usage](https://github.com/vibe-cafe/vibe-usage) CLI 的 vendor 快照（MIT），由 `scripts/sync-cli.sh` 重新同步
+- [`cli/`](cli/) — vendored 自我們的 fork [jwcrystal/vibe-usage](https://github.com/jwcrystal/vibe-usage)（MIT，基於 [vibe-cafe/vibe-usage](https://github.com/vibe-cafe/vibe-usage)），由 `scripts/sync-cli.sh` 重新同步
 - [`server/`](server/) — vendored 自 [vibe-usage-local-server](https://github.com/jwcrystal/vibe-usage-local-server)
 - 應用圖示改編自 [vibe-usage-app](https://github.com/vibe-cafe/vibe-usage-app)（MIT）
 

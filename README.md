@@ -26,7 +26,7 @@ next to this one and re-sync:
 
 ```bash
 git clone https://github.com/jwcrystal/vibe-usage-local-server ../vibe-usage-local-server
-git clone https://github.com/vibe-cafe/vibe-usage ../vibe-usage
+git clone https://github.com/jwcrystal/vibe-usage ../vibe-usage   # our fork of vibe-cafe/vibe-usage
 npm run sync-server   # vendor ../vibe-usage-local-server/src -> ./server
 npm run preflight     # vendor ../vibe-usage @HEAD -> ./cli
 ```
@@ -58,7 +58,7 @@ magick -background none icon-source.svg -resize 1024x1024 build/icon.png
 
 ## Acknowledgements
 
-- [`cli/`](cli/) — vendored snapshot of the [vibe-usage](https://github.com/vibe-cafe/vibe-usage) CLI (MIT), re-synced via `scripts/sync-cli.sh`
+- [`cli/`](cli/) — vendored from our fork [jwcrystal/vibe-usage](https://github.com/jwcrystal/vibe-usage) (MIT, based on [vibe-cafe/vibe-usage](https://github.com/vibe-cafe/vibe-usage)), re-synced via `scripts/sync-cli.sh`
 - [`server/`](server/) — vendored from [vibe-usage-local-server](https://github.com/jwcrystal/vibe-usage-local-server)
 - App icon adapted from [vibe-usage-app](https://github.com/vibe-cafe/vibe-usage-app) (MIT)
 
