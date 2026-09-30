@@ -264,7 +264,21 @@ const server = http.createServer((req, res) => {
 // Tests may bind the server to an ephemeral port.
 export { server };
 
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+
+// Permissive auth (no configured key) accepts any vbu_-prefixed key. That is
+// only acceptable on a loopback interface — refuse to bind anything wider.
+export function assertSafeBind(host, hasExpectedKey) {
+  const h = String(host || '').toLowerCase();
+  if (hasExpectedKey || LOOPBACK_HOSTS.has(h)) return;
+  throw new Error(
+    `Refusing to bind ${host}: permissive auth (no VIBE_USAGE_SERVER_KEY and no apiKey in ~/.vibe-usage/config.json) accepts any vbu_ key. ` +
+    'Set VIBE_USAGE_SERVER_KEY (or the config apiKey), or keep HOST=127.0.0.1.',
+  );
+}
+
 export function start() {
+  assertSafeBind(HOST, Boolean(EXPECTED_KEY));
   server.listen(PORT, HOST, () => {
     console.log(`Vibe Usage local server listening on http://${HOST}:${PORT}`);
     console.log(`Data: ${getDataPath()}`);

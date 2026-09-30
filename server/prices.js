@@ -32,6 +32,9 @@ export function loadPrices() {
 // Compute estimated cost for one bucket. Returns a number, or null if the
 // model is not in the price table.
 // formula: input*inputRate + output*outputRate + cachedInput*cacheReadRate
+//        + cacheCreation5m*cacheWriteRate
+// cacheWriteMtok is optional (missing = 0): models without a published
+// cache-write price keep their previous cost unchanged.
 export function estimateCost(bucket, prices = loadPrices()) {
   const entry = prices.models[bucket.model];
   if (!entry) return null;
@@ -39,10 +42,13 @@ export function estimateCost(bucket, prices = loadPrices()) {
     input: (entry.input ?? 0) / 1_000_000,
     output: (entry.output ?? 0) / 1_000_000,
     cacheRead: (entry.cacheReadMtok ?? 0) / 1_000_000,
+    cacheWrite: (entry.cacheWriteMtok ?? 0) / 1_000_000,
   };
   const input = Number(bucket.inputTokens ?? 0);
   const output = Number(bucket.outputTokens ?? 0);
   const cached = Number(bucket.cachedInputTokens ?? 0);
   const reasoning = Number(bucket.reasoningOutputTokens ?? 0);
-  return input * perToken.input + (output + reasoning) * perToken.output + cached * perToken.cacheRead;
+  const cacheWrite = Number(bucket.cacheCreation5mTokens ?? 0);
+  return input * perToken.input + (output + reasoning) * perToken.output
+    + cached * perToken.cacheRead + cacheWrite * perToken.cacheWrite;
 }
