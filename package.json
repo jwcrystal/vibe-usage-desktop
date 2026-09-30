@@ -6,7 +6,7 @@
   "type": "module",
   "main": "main.js",
   "scripts": {
-    "preflight": "sh scripts/sync-cli.sh",
+    "preflight": "sh scripts/sync-cli.sh && sh scripts/check-vendors.sh",
     "start": "npm run preflight && electron .",
     "sync-server": "sh scripts/sync-server.sh",
     "smoke": "VIBE_DESKTOP_SMOKE=1 electron .",
