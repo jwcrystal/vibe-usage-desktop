@@ -1,5 +1,7 @@
 # vibe-usage-desktop
 
+English | [繁體中文](README.zh-TW.md)
+
 Cross-platform desktop shell (macOS / Windows / Linux) for
 [vibe-usage-local-server](https://github.com/jwcrystal/vibe-usage-local-server)
 — Electron app that embeds the zero-dependency local server and shows its dashboard.

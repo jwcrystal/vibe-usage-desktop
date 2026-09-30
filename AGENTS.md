@@ -9,3 +9,8 @@
 1. `npm version patch`（自動建 commit + tag `vX.Y.Z`）；累積的功能量值得明確標記時才升 minor
 2. 共用檔案（`server/ui/dashboard.html` ↔ local-server 的 `src/ui/dashboard.html`）同步修改時，兩邊各自 bump
 3. push 帶 tag：`git push --follow-tags`
+
+## README 雙語同步
+
+- `README.md`（英，**權威版**）與 `README.zh-TW.md`（繁中譯本）內容必須一致——改任一邊，同一個 commit 內同步另一邊
+- 段落、程式碼區塊、表格、連結一一對應；錨點依各語言標題各自維護
