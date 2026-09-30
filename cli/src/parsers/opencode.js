@@ -4,39 +4,54 @@ import { aggregateToBuckets, extractSessions } from './aggregate.js';
 import { queryDbJson, sqliteUnavailableError, isSqliteUnavailableError } from './sqlite.js';
 import { getOpenCodeStores } from '../opencode-roots.js';
 
+// Select only accounting/timing metadata, never message text or tool inputs.
+// Keep the existing top-level model/project precedence for old uploads.
+const V1_QUERY = `SELECT id, session_id AS sessionID,
+    json_extract(data, '$.role') AS role,
+    json_extract(data, '$.time.created') AS created,
+    coalesce(json_extract(data, '$.modelID'), json_extract(data, '$.model.modelID')) AS modelID,
+    json_extract(data, '$.tokens') AS tokens,
+    json_extract(data, '$.path.root') AS rootPath
+    FROM message ORDER BY id`;
+
+// OpenCode 2.x stores the same accounting in the event-sourced projection
+// `session_message`: the row's `type` is the role, `data.model.id` the model,
+// `data.tokens` the counters. Message data carries no `path`, so the project
+// comes from the session row's `directory`; the session table is `session_v2`
+// in 2.x and `session` before that (both names in the wild, issue #114). Only
+// column/JSON expressions are selected -- never message text, tool payloads,
+// or costs.
+function v2Query(sessionTable) {
+  return `SELECT m.id AS id, m.session_id AS sessionID,
+    m.type AS role,
+    coalesce(json_extract(m.data, '$.time.created'), m.time_created) AS created,
+    coalesce(json_extract(m.data, '$.model.id'), json_extract(m.data, '$.modelID')) AS modelID,
+    json_extract(m.data, '$.tokens') AS tokens,
+    s.directory AS directory
+    FROM session_message m
+    ${sessionTable ? `LEFT JOIN ${sessionTable} s ON s.id = m.session_id` : ''}
+    WHERE m.type IN ('user', 'assistant')
+    ORDER BY m.id`;
+}
+
 function readSqlite(path) {
-  // Select only accounting/timing metadata, never message text or tool inputs.
-  // Keep the existing top-level model/project precedence for old uploads.
   try {
     const tables = new Set(queryDbJson(path,
-      "SELECT name FROM sqlite_master WHERE type = 'table'").map(row => row.name));
+      `SELECT name FROM sqlite_master WHERE type = 'table'
+       AND name IN ('message', 'session_message', 'session', 'session_v2')`)
+      .map(row => row.name));
+    if (!tables.has('message') && !tables.has('session_message')) {
+      throw new Error(`不认识的表结构（没有 message / session_message 表）: ${path}`);
+    }
+    // Read both shapes when a migrated store keeps both: copies are merged by
+    // (session, message id), and the legacy row is seen first so an equal copy
+    // never renames a project that earlier uploads already used.
     const rows = [];
-    if (tables.has('message')) {
-      const query = `SELECT id, session_id AS sessionID,
-        json_extract(data, '$.role') AS role,
-        json_extract(data, '$.time.created') AS created,
-        coalesce(json_extract(data, '$.modelID'), json_extract(data, '$.model.modelID')) AS modelID,
-        json_extract(data, '$.tokens') AS tokens,
-        json_extract(data, '$.path.root') AS rootPath
-        FROM message ORDER BY id`;
-      rows.push(...queryDbJson(path, query));
-    }
+    if (tables.has('message')) rows.push(...queryDbJson(path, V1_QUERY));
     if (tables.has('session_message')) {
-      if (!tables.has('session_v2')) throw new Error('V2 session_v2 table is missing');
-      const query = `SELECT m.id, m.session_id AS sessionID, m.type AS role,
-        m.time_created AS created,
-        coalesce(json_extract(m.data, '$.model.id'), json_extract(m.data, '$.model.modelID')) AS modelID,
-        json_extract(m.data, '$.tokens') AS tokens,
-        coalesce(json_extract(m.data, '$.path.root'), s.directory) AS rootPath,
-        1 AS v2
-        FROM session_message AS m
-        LEFT JOIN session_v2 AS s ON s.id = m.session_id
-        WHERE m.type IN ('user', 'assistant')
-        ORDER BY m.time_created, m.seq`;
-      rows.push(...queryDbJson(path, query));
-    }
-    if (rows.length === 0 && !tables.has('message') && !tables.has('session_message')) {
-      throw new Error('找不到支援的資料表 (message/session_message)');
+      const sessionTable = tables.has('session_v2') ? 'session_v2'
+        : (tables.has('session') ? 'session' : null);
+      rows.push(...queryDbJson(path, v2Query(sessionTable)));
     }
     return rows;
   } catch (err) {
@@ -65,7 +80,7 @@ function readJson(path) {
 function tokenSize(row) {
   const t = row.tokens;
   return ['input', 'output', 'reasoning'].reduce((n, key) => n + (Number(t?.[key]) || 0), 0)
-    + (Number(t?.cache?.read) || 0) + (Number(t?.cache?.write) || 0);
+    + (Number(t?.cache?.read) || 0);
 }
 
 export async function parse({ extraRoots = [] } = {}) {
@@ -85,22 +100,9 @@ export async function parse({ extraRoots = [] } = {}) {
         // Missing ids cannot prove that two stores hold the same record.
         const key = JSON.stringify([sessionId, row.id || `${store.path}:${index}`]);
         const old = records.get(key);
-        const rowSize = tokenSize(row);
-        const oldSize = old ? tokenSize(old) : -1;
-        const preferRow = !old || rowSize > oldSize || (rowSize === oldSize && row.v2 && !old.v2);
-        if (old && (row.v2 !== old.v2)) {
-          const v1 = row.v2 ? old : row;
-          const v2 = row.v2 ? row : old;
-          const v1Root = v1.rootPath && basename(v1.rootPath) ? v1.rootPath : undefined;
-          const rootPath = v1Root || v2.rootPath || v1.rootPath;
-          const modelID = v1.modelID || v2.modelID;
-          if (preferRow) records.set(key, { ...row, modelID, rootPath, timestamp, sessionId });
-          else if (rootPath !== old.rootPath || modelID !== old.modelID) {
-            records.set(key, { ...old, modelID, rootPath, timestamp, sessionId });
-          }
-        } else if (preferRow) records.set(key, { ...row, timestamp, sessionId });
+        if (!old || tokenSize(row) > tokenSize(old)) records.set(key, { ...row, timestamp, sessionId });
       }
-    } catch (err) { warnings.push(`OpenCode: 無法讀取 ${store.path}: ${err.message}`); }
+    } catch (err) { warnings.push(`OpenCode: 无法读取 ${store.path}: ${err.message}`); }
   }
   if (warnings.length) return { buckets: [], sessions: [], skipped: true, warnings };
 
@@ -108,14 +110,23 @@ export async function parse({ extraRoots = [] } = {}) {
   for (const row of records.values()) {
     // Keep the existing project derivation and token semantics. Additional roots
     // must not rename previously uploaded projects/models or alter their counts.
-    const project = row.rootPath ? basename(row.rootPath) : 'unknown';
+    // V2 message rows carry no `path`, so they fall back to the session
+    // directory; they come from a store the parser could not read before, so
+    // nothing previously uploaded is relabelled by that fallback.
+    const project = row.rootPath ? basename(row.rootPath)
+      : (row.directory ? basename(row.directory) : 'unknown');
     const base = { source: 'opencode', project, timestamp: row.timestamp };
     events.push({ ...base, sessionId: row.sessionId, role: row.role === 'user' ? 'user' : 'assistant' });
     const tokens = row.tokens;
-    if (!row.modelID || !tokens || (!tokens.input && !tokens.output && !tokens.reasoning && !tokens.cache?.write)) continue;
+    if (!row.modelID || !tokens || (!tokens.input && !tokens.output)) continue;
     entries.push({ ...base, model: row.modelID,
       inputTokens: tokens.input || 0, outputTokens: tokens.output || 0,
       cachedInputTokens: tokens.cache?.read || 0, reasoningOutputTokens: tokens.reasoning || 0,
+      // The store writes one cache-write total with no per-TTL breakdown and no
+      // separate `tokens.total` column to reconcile against, so it goes to the
+      // cheaper 5m cache-creation bucket -- the same rule as CodeArts Agent,
+      // which reads this exact layout. Dropping it (the behaviour until
+      // 2026-09-26) under-billed every Claude/Anthropic run through OpenCode.
       cacheCreation5mTokens: tokens.cache?.write || 0 });
   }
   return { buckets: aggregateToBuckets(entries), sessions: extractSessions(events) };

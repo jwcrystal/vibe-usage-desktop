@@ -4,6 +4,7 @@ export const QUOTA_PRODUCT_IDS = Object.freeze([
   'kimi-code',
   'zcode',
   'grok',
+  'opencode-go',
   'cursor',
 ]);
 
@@ -11,6 +12,20 @@ export const FETCHABLE_QUOTA_PRODUCT_IDS = Object.freeze([
   'kimi-code',
   'zcode',
   'grok',
+  'opencode-go',
+]);
+
+/**
+ * Machine-readable "why there was no window" values, shared with the desktop
+ * clients' `EmptyReason` (macOS `RateLimit.swift`) and additive within schema
+ * v1: a client that does not know the field ignores it, and a client that does
+ * can render the reason instead of a neutral empty state.
+ */
+export const QUOTA_EMPTY_REASONS = Object.freeze([
+  'limitReached',
+  'noWindow',
+  'notEntitled',
+  'sessionWithoutPlanLimits',
 ]);
 
 const FETCH_STATUSES = new Set([
@@ -59,6 +74,65 @@ export function normalizeMeter(raw, index = 0) {
   return meter;
 }
 
+const PERIOD_LABELS = new Map([
+  ['daily', { label: '1d', seconds: 24 * 60 * 60, exact: true }],
+  ['day', { label: '1d', seconds: 24 * 60 * 60, exact: true }],
+  ['weekly', { label: '7d', seconds: 7 * 24 * 60 * 60, exact: true }],
+  ['week', { label: '7d', seconds: 7 * 24 * 60 * 60, exact: true }],
+  ['monthly', { label: 'Month', seconds: 30 * 24 * 60 * 60, exact: false }],
+  ['month', { label: 'Month', seconds: 30 * 24 * 60 * 60, exact: false }],
+]);
+
+function periodPresentation(meter) {
+  const compact = meter.label.trim().toLowerCase().replace(/\s+/g, '');
+  const alias = PERIOD_LABELS.get(compact);
+  if (alias) {
+    return {
+      label: alias.label,
+      seconds: meter.windowSeconds || alias.seconds,
+      inferredWindowSeconds: alias.exact ? alias.seconds : undefined,
+    };
+  }
+
+  const match = /^(\d+(?:\.\d+)?)(m|h|d|w)$/.exec(compact);
+  if (!match) return null;
+  const multipliers = { m: 60, h: 3600, d: 86400, w: 7 * 86400 };
+  const seconds = meter.windowSeconds || Number(match[1]) * multipliers[match[2]];
+  const label = compact === '1w' ? '7d' : compact;
+  return { label, seconds, inferredWindowSeconds: seconds };
+}
+
+/**
+ * Keep the compact desktop cards predictable across providers: generic time
+ * windows come first from shortest to longest, followed by model-specific and
+ * feature meters in their provider-defined order. The original index is the
+ * final comparison key so the sort remains deterministic on every JS runtime.
+ */
+export function canonicalizeMeters(rawMeters) {
+  return rawMeters
+    .map((raw, index) => {
+      const meter = normalizeMeter(raw, index);
+      const period = periodPresentation(meter);
+      if (period) {
+        meter.label = period.label;
+        if (!meter.windowSeconds && period.inferredWindowSeconds) {
+          meter.windowSeconds = period.inferredWindowSeconds;
+        }
+      }
+      return { meter, periodSeconds: period?.seconds, index };
+    })
+    .sort((left, right) => {
+      const leftIsPeriod = left.periodSeconds !== undefined;
+      const rightIsPeriod = right.periodSeconds !== undefined;
+      if (leftIsPeriod !== rightIsPeriod) return leftIsPeriod ? -1 : 1;
+      if (leftIsPeriod && left.periodSeconds !== right.periodSeconds) {
+        return left.periodSeconds - right.periodSeconds;
+      }
+      return left.index - right.index;
+    })
+    .map(item => item.meter);
+}
+
 export function quotaResult({
   id,
   status,
@@ -68,6 +142,7 @@ export function quotaResult({
   dataAsOf = fetchedAt,
   message,
   source = 'live',
+  emptyReason,
 }) {
   if (!FETCHABLE_QUOTA_PRODUCT_IDS.includes(id)) {
     throw new TypeError(`unsupported quota product: ${id}`);
@@ -78,7 +153,7 @@ export function quotaResult({
   const result = {
     id,
     status,
-    meters: meters.map(normalizeMeter),
+    meters: canonicalizeMeters(meters),
     fetchedAt: new Date(fetchedAt).toISOString(),
     source,
   };
@@ -86,6 +161,12 @@ export function quotaResult({
   if (normalizedDataAsOf) result.dataAsOf = normalizedDataAsOf;
   if (typeof planLabel === 'string' && planLabel.trim()) result.planLabel = planLabel.trim();
   if (typeof message === 'string' && message.trim()) result.message = message.trim();
+  if (emptyReason !== undefined && emptyReason !== null) {
+    if (!QUOTA_EMPTY_REASONS.includes(emptyReason)) {
+      throw new TypeError(`invalid quota emptyReason: ${emptyReason}`);
+    }
+    result.emptyReason = emptyReason;
+  }
   return result;
 }
 

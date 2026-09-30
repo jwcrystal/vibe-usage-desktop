@@ -47,20 +47,8 @@ export function npxLauncher(nodePath, exists = existsSync, os = platform()) {
   return exists(npxPath) ? { mode: 'npx', npxPath, nodeDir } : null;
 }
 
-// Homebrew's node lives at <prefix>/Cellar/node/<version>/bin/node — a versioned
-// path that disappears on `brew upgrade node && brew cleanup`, silently killing
-// the service. Prefer the stable <prefix>/bin/node symlink brew maintains.
-function stableNodePath(p) {
-  const m = p.match(/^(.+)[\\/]Cellar[\\/]node[\\/][^\\/]+[\\/]bin[\\/]node(\.exe)?$/);
-  if (m) {
-    const stable = p.replace(/[\\/]Cellar[\\/]node[\\/][^\\/]+([\\/]bin[\\/]node(\.exe)?)$/, '$1');
-    if (stable !== p && existsSync(stable)) return stable;
-  }
-  return p;
-}
-
 function resolvePaths() {
-  const nodePath = stableNodePath(process.execPath);
+  const nodePath = process.execPath;
   const thisFile = fileURLToPath(import.meta.url);
   const binPath = join(thisFile, '..', '..', 'bin', 'vibe-usage.js');
   const isNpxCache = isNpxCachePath(binPath);
@@ -126,23 +114,43 @@ function escapeXml(value) {
 
 // Variables that relocate a tool's on-disk store. The service runs from a
 // launchd/systemd unit that inherits nothing, so anything the parsers read for
-// discovery has to be captured into the unit at install time.
+// discovery has to be captured into the unit at install time. Keep this list in
+// sync with the store-locating variables the parsers and roots modules read
+// (`grep -rho 'process\.env\.[A-Z_]*' src/parsers src/*-roots.js`): a variable
+// missing here makes the background service sync a different store than the
+// foreground CLI (issue #112). Test-only overrides (`VIBE_USAGE_*`) and
+// accounting knobs are deliberately absent -- they do not relocate a store.
 const PRESERVED_SERVICE_ENV = [
+  'AMP_DATA_DIR',
   'CLINE_DIR',
   'CLINE_DATA_DIR',
   'CLINE_SESSION_DATA_DIR',
+  'CODEBUDDY_CONFIG_DIR',
+  'CODEX_HOME',
   'COLA_DATA_DIR',
+  'CRAFT_AGENT_DIR',
+  'CRAFTAGENT_DIR',
+  'CURSOR_CONFIG_DIR',
+  'DIMCODE_HOME',
+  'DSH_HOME',
+  'GROK_HOME',
   'HERMES_HOME',
+  'KIMI_CODE_HOME',
+  'KIRO_BASE_PATH',
+  'KIRO_CLI_DB_PATH',
+  'KIRO_CLI_SESSIONS_DIR',
+  'KIRO_SESSIONS_DIR',
+  'KIRO_USER_PATH',
+  'MAVIS_DATA_DIR',
   'MCODE_HOME',
   'MIMOCODE_HOME',
   'MIMOCODE_DB',
-  'XDG_DATA_HOME',
+  'MINIMAX_DATA_DIR',
+  'OPENCODE_DB',
+  'PI_CONFIG_DIR',
   'PI_CODING_AGENT_DIR',
   'PI_CODING_AGENT_SESSION_DIR',
-  // When the CLI itself runs via Electron (ELECTRON_RUN_AS_NODE=1, e.g. from a
-  // desktop app bundling it), process.execPath is the Electron binary and only
-  // works as Node with this variable — the service must replay it.
-  'ELECTRON_RUN_AS_NODE',
+  'XDG_DATA_HOME',
 ];
 
 function serviceEnvironment(claudeConfigDir, env) {
@@ -165,9 +173,8 @@ export function generateSystemdUnit(
   const environment = serviceEnvironment(claudeConfigDir, env)
     .map(([key, value]) => `Environment="${key}=${escapeSystemdEnvironment(value)}"\n`)
     .join('');
-  // RestartSec=60 for all modes: a deleted/moved binary (e.g. an uninstalled
-  // desktop app that bundled the CLI) must not become a restart storm, and the
-  // daemon's 30m sync cadence makes a 60s respawn delay free.
+  // npx mode needs the registry at start; RestartSec=60 keeps an offline boot
+  // from turning into a restart storm.
   return `[Unit]
 Description=VibeCafe Usage Tracker
 After=network.target
@@ -176,7 +183,7 @@ After=network.target
 Type=simple
 ExecStart=${serviceArgv(nodePath, binPath, launcher).join(' ')}
 Restart=on-failure
-RestartSec=60
+RestartSec=${npx ? 60 : 10}
 Environment=NODE_ENV=production
 ${pathLine}${environment}WorkingDirectory=${homedir()}
 
@@ -203,11 +210,9 @@ export function generateLaunchdPlist(
   const environment = serviceEnvironment(claudeConfigDir, env)
     .map(([key, value]) => `        <key>${key}</key>\n        <string>${escapeXml(value)}</string>\n`)
     .join('');
-  // ThrottleInterval applies to every mode now: KeepAlive otherwise relaunches
-  // every ~10s — harmless for a transient crash, but a deleted/moved binary
-  // (uninstalled app bundle, removed global install) turns it into an endless
-  // relaunch loop. The daemon syncs every 30m, so a 60s respawn delay is free.
-  const throttle = `    <key>ThrottleInterval</key>\n    <integer>60</integer>\n`;
+  // ThrottleInterval only matters in npx mode: an offline boot makes npx exit
+  // non-zero and KeepAlive would otherwise relaunch it every 10 seconds.
+  const throttle = npx ? `    <key>ThrottleInterval</key>\n    <integer>60</integer>\n` : '';
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -333,17 +338,13 @@ function run(cmd, args) {
 }
 
 function runPowerShell(script) {
-  // Force UTF-8 on both directions: Windows PowerShell 5.x otherwise pipes in
-  // the OEM codepage (GBK/CP950 on Chinese systems), and Node decodes the
-  // bytes as UTF-8 — error messages turn into mojibake that hides the real
-  // failure from `daemon status`/`uninstall` output.
   return run('powershell.exe', [
     '-NoProfile',
     '-NonInteractive',
     '-ExecutionPolicy',
     'Bypass',
     '-Command',
-    '[Console]::InputEncoding=[Console]::OutputEncoding=[Text.Encoding]::UTF8; ' + script,
+    script,
   ]);
 }
 
