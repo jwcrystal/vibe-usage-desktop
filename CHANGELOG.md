@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## [0.1.5] - 2026-10-01
+
+### Changed
+
+- Updated the bundled local server to 0.1.6: the dashboard detail table gains an export menu — a **detail CSV** (raw values with ISO-8601+offset timestamps; UTF-8 BOM; terminal column follows the mask toggle; spreadsheet formula-injection guard) and a **single-page HTML report** (KPI overview + model/tool/project breakdown tables, print-to-PDF ready). Both respect the current range, filters, and table sort.
+
 ## [0.1.4] - 2026-09-30
 
 ### Added

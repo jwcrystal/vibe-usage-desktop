@@ -76,6 +76,14 @@
 
   .panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 20px; }
   .panel h2 { font-size: 13px; padding: 12px 16px; border-bottom: 1px solid var(--border); color: var(--text2); font-weight: 600; }
+  /* records panel header row: title + export dropdown */
+  .panel-h { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); position: relative; }
+  .panel-h h2 { border-bottom: none; flex: 1; }
+  .panel-h .ghost { background: transparent; color: var(--text2); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 12px; margin-right: 16px; cursor: pointer; font-size: 12px; white-space: nowrap; }
+  .panel-h .ghost:hover { border-color: var(--text3); color: var(--text); }
+  .menu { position: absolute; right: 12px; top: calc(100% + 4px); z-index: 30; background: var(--card); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.45); padding: 4px; min-width: 190px; }
+  .menu button { display: block; width: 100%; text-align: left; background: transparent; border: none; color: var(--text); border-radius: 4px; padding: 8px 10px; cursor: pointer; font-size: 12px; }
+  .menu button:hover { background: rgba(255,255,255,.06); }
   table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   th, td { text-align: right; padding: 8px 16px; }
   th:first-child, td:first-child { text-align: left; }
@@ -790,14 +798,19 @@ function recValue(b, key) {
     default: return b[key] ?? 0;
   }
 }
-function recordsPanel(buckets) {
-  const rows = [...buckets].sort((a, b) => {
+// Rows in the current table sort — shared by the panel render and the CSV
+// export so the file always matches what is on screen.
+function sortedRecords(buckets) {
+  return [...buckets].sort((a, b) => {
     const av = recValue(a, recState.key), bv = recValue(b, recState.key);
     if (av === bv) return 0;
     if (av == null) return 1;
     if (bv == null) return -1;
     return (av < bv ? -1 : 1) * recState.dir;
   });
+}
+function recordsPanel(buckets) {
+  const rows = sortedRecords(buckets);
   const total = rows.length;
   const ths = REC_COLS.map(c => {
     const active = c.key === recState.key;
@@ -823,10 +836,151 @@ function recordsPanel(buckets) {
       '<td class="cost ' + (cost ? 'unpriced' : 'priced') + '">' + (cost ? '未定價' : money(b.estimatedCost)) + '</td>' +
       '</tr>';
   }).join('');
-  return '<div class="panel"><h2>詳細記錄</h2><div class="table-scroll"><table class="records"><thead><tr>' + ths + '</tr></thead><tbody>' +
+  return '<div class="panel"><div class="panel-h"><h2>詳細記錄</h2>' +
+    '<button class="ghost" id="exportBtn" title="匯出目前範圍的資料" aria-haspopup="menu">⤓ 匯出 ⌄</button>' +
+    '<div class="menu" id="exportMenu" hidden role="menu">' +
+    '<button data-export="csv" title="' + (recShowHost ? '原始值明細（含終端與項目名稱）' : '原始值明細（含項目名稱）') + '">📄 明細 CSV</button>' +
+    '<button data-export="report" title="單頁 HTML，可列印成 PDF">📊 報表 HTML</button>' +
+    '</div></div>' +
+    '<div class="table-scroll"><table class="records"><thead><tr>' + ths + '</tr></thead><tbody>' +
     (trs || '<tr><td colspan="10" class="muted" style="text-align:center;padding:20px">無記錄</td></tr>') +
     '</tbody></table></div>' +
     '<div class="foot"><span>共 ' + total + ' 條</span></div></div>';
+}
+
+// ---- CSV export of the detailed records ----
+// WYSIWYG: current range + dimension filters + table sort. The hostname
+// column follows the mask toggle (omitted entirely while masked). Values are
+// raw (no K/M compaction, no $ sign), timestamps are ISO 8601 with local
+// offset, unpriced cost stays empty (unknown ≠ free), and text cells get the
+// standard spreadsheet formula-injection guard (=, +, -, @ prefixes).
+function csvCell(v) {
+  let s = v == null ? '' : String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+function isoLocal(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso || '';
+  const p = (n) => String(n).padStart(2, '0');
+  const off = -d.getTimezoneOffset(), sg = off >= 0 ? '+' : '-', a = Math.abs(off);
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+    'T' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()) +
+    sg + p(Math.floor(a / 60)) + ':' + p(a % 60);
+}
+function fileDate(ts) {
+  const d = new Date(ts), p = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+function exportCsv() {
+  const rows = sortedRecords(currentBuckets());
+  if (!rows.length) return;
+  const cols = [
+    ['date', (b) => isoLocal(b.bucketStart)],
+    ['source', (b) => b.source || ''],
+    ['project', (b) => b.project || ''],
+    ['model', (b) => b.model || ''],
+    ['input_tokens', (b) => b.inputTokens ?? 0],
+    ['output_tokens', (b) => b.outputTokens ?? 0],
+    ['cache_read_tokens', (b) => b.cachedInputTokens ?? 0],
+    ['cache_write_tokens', (b) => b.cacheCreation5mTokens ?? 0],
+    // Trim float noise only (1.2340000000002 → 1.234); sub-cent precision kept.
+    ['estimated_cost_usd', (b) => b.estimatedCost == null ? '' : String(Number(b.estimatedCost.toFixed(6)))],
+  ];
+  if (recShowHost) cols.splice(1, 0, ['hostname', (b) => b.hostname || '']);
+  const lines = [cols.map((c) => csvCell(c[0])).join(',')];
+  for (const b of rows) lines.push(cols.map((c) => csvCell(c[1](b))).join(','));
+  // BOM so Excel decodes UTF-8; CRLF is the CSV-friendly line ending.
+  const csv = '\uFEFF' + lines.join('\r\n');
+  const r = computeRange();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = 'vibe-usage_' + fileDate(r.curMin) + '_' + fileDate(r.curMax) + '.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ---- Single-page HTML report of the current range ----
+// The presentation counterpart to the detail CSV: formatted values, KPI grid
+// with period-over-period deltas, and per-dimension breakdowns. Fully
+// self-contained (inline CSS, no scripts or external assets) so the file
+// opens anywhere and prints cleanly to PDF. Costs are estimates from the
+// local price table at generation time, not bills.
+function reportDelta(c, p) {
+  if (!p) return '';
+  const d = (c - p) / p * 100;
+  if (Math.abs(d) < 0.05) return '持平';
+  return (d > 0 ? '+' : '') + d.toFixed(0) + '%';
+}
+function reportTable(title, rows, totalCost) {
+  const trs = rows.map(([name, e]) =>
+    '<tr><td>' + esc(name) + '</td><td>' + money(e.cost) + '</td><td>' + fmtTok(e.tokens) + '</td><td>' + pct(e.cost, totalCost) + '</td><td>' + fmtInt(e.n) + '</td></tr>'
+  ).join('');
+  return '<section><h2>' + title + '</h2><table><thead><tr><th>名稱</th><th>費用</th><th>Token</th><th>佔比</th><th>Buckets</th></tr></thead><tbody>' +
+    (trs || '<tr><td colspan="5" class="muted2">無數據</td></tr>') + '</tbody></table></section>';
+}
+function reportHtml(meta, cur, pr, modelRows, toolRows, projectRows) {
+  const k = (label, val, d) =>
+    '<div class="kpi"><div class="l">' + label + '</div><div class="v">' + val + '</div>' + (d ? '<div class="d">' + d + '</div>' : '') + '</div>';
+  return '<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8">' +
+    '<title>vibe-usage 報表 ' + meta.from + ' ~ ' + meta.to + '</title><style>' +
+    'body{font:14px/1.5 -apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;color:#1a1a1a;background:#fff;margin:24px auto;max-width:960px;padding:0 16px}' +
+    'h1{font-size:18px;margin:0 0 4px}.sub{color:#666;font-size:12px;margin-bottom:4px}' +
+    '.warn{background:#fff7e6;border:1px solid #f0d090;color:#8a6d1a;padding:8px 12px;border-radius:6px;font-size:12px;margin:12px 0}' +
+    '.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:16px 0}' +
+    '.kpi{border:1px solid #e5e5e5;border-radius:8px;padding:10px 12px}.kpi .l{font-size:11px;color:#888}.kpi .v{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}.kpi .d{font-size:11px;color:#999}' +
+    'section{margin:18px 0}h2{font-size:13px;color:#555;border-bottom:1px solid #eee;padding-bottom:6px}' +
+    'table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:13px}th,td{padding:6px 10px;border-bottom:1px solid #eee}th{color:#888;font-weight:600;font-size:12px}th:first-child,td:first-child{text-align:left}th:not(:first-child),td:not(:first-child){text-align:right}' +
+    '.muted2{color:#999;text-align:center}.foot{color:#999;font-size:11px;margin-top:24px;border-top:1px solid #eee;padding-top:10px}' +
+    '@media print{body{margin:0}}' +
+    '</style></head><body>' +
+    '<h1>vibe-usage 本地報表</h1>' +
+    '<div class="sub">範圍：' + meta.rangeLabel + '（' + meta.from + ' ~ ' + meta.to + '）' + (meta.filtersText ? ' · 篩選：' + esc(meta.filtersText) : '') + '</div>' +
+    '<div class="sub">生成於 ' + meta.generatedAt + ' · ' + meta.counts + '</div>' +
+    (meta.unpriced.length ? '<div class="warn">⚠ 未定價模型（費用未計入合計）：' + meta.unpriced.map(esc).join('、') + '</div>' : '') +
+    '<div class="kpis">' +
+    k('總成本', money(cur.cost), reportDelta(cur.cost, pr && pr.cost)) +
+    k('總 Token', fmtTok(cur.total), reportDelta(cur.total, pr && pr.total)) +
+    k('輸入 Token', fmtTok(cur.input), reportDelta(cur.input, pr && pr.input)) +
+    k('輸出 Token', fmtTok(cur.output), reportDelta(cur.output, pr && pr.output)) +
+    k('緩存讀 Token', fmtTok(cur.cached), reportDelta(cur.cached, pr && pr.cached)) +
+    k('緩存寫 Token', fmtTok(cur.cacheWrite), reportDelta(cur.cacheWrite, pr && pr.cacheWrite)) +
+    k('Active 時長', fmtH(cur.active), reportDelta(cur.active, pr && pr.active)) +
+    k('總時長', fmtH(cur.duration), reportDelta(cur.duration, pr && pr.duration)) +
+    k('會話數', fmtTok(cur.sessions), reportDelta(cur.sessions, pr && pr.sessions)) +
+    k('總消息數', fmtTok(cur.msgs), reportDelta(cur.msgs, pr && pr.msgs)) +
+    k('用戶消息數', fmtTok(cur.userMsgs), reportDelta(cur.userMsgs, pr && pr.userMsgs)) +
+    '</div>' +
+    reportTable('按模型', modelRows, cur.cost) +
+    reportTable('按工具', toolRows, cur.cost) +
+    reportTable('按項目', projectRows, cur.cost) +
+    '<div class="foot">費用為本地價格表即時估算（estimated cost），非實際帳單。未定價模型不計入費用合計。</div>' +
+    '</body></html>';
+}
+function exportReport() {
+  if (!data || !data.rangeMeta) return;  const buckets = currentBuckets();
+  if (!buckets.length) return;
+  const { curMin, curMax, span } = data.rangeMeta;
+  const sess = (data.sessions || []).filter((s) => sessInRange(s, curMin, curMax) && matchFilters(s));
+  const cur = sumMetrics(buckets, sess, { min: curMin, max: curMax });
+  const pr = prev ? sumMetrics(prev.buckets || [], prev.sessions || [], { min: curMin - span, max: curMin }) : null;
+  const unpriced = [...new Set(buckets.filter((b) => b.estimatedCost == null).map((b) => b.model || 'unknown'))];
+  const activeFilters = FILTER_KEYS.filter((key) => filters[key]).map((key) => FILTER_LABELS[key] + '=' + filters[key]);
+  const meta = {
+    rangeLabel: rangeLabel(),
+    from: fileDate(curMin),
+    to: fileDate(curMax),
+    generatedAt: new Date().toLocaleString('zh-Hant', { hour12: false }),
+    counts: buckets.length + ' buckets · ' + sess.length + ' sessions',
+    filtersText: activeFilters.join('、'),
+    unpriced,
+  };
+  const html = reportHtml(meta, cur, pr, byKey(buckets, 'model'), byKey(buckets, 'source'), byKey(buckets, 'project'));
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+  a.download = 'vibe-usage-report_' + meta.from + '_' + meta.to + '.html';
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 // The current filtered bucket set (client filter + data). Used for table re-render.
@@ -882,8 +1036,32 @@ document.getElementById('app').addEventListener('click', (e) => {
   if (clr) { filters = { source: '', model: '', project: '', hostname: '' }; render(); return; }
 });
 
+// Export dropdown: shared close helper (menu markup is re-rendered with the
+// records panel, so look it up by id each time).
+function closeExportMenu() {
+  const m = document.getElementById('exportMenu');
+  if (m) m.hidden = true;
+}
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.panel-h')) closeExportMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeExportMenu();
+});
+
 // Detailed-records sorting & pagination (delegated, re-renders just the table).
 document.getElementById('app').addEventListener('click', (e) => {
+  if (e.target.closest('#exportBtn')) {
+    const m = document.getElementById('exportMenu');
+    if (m) m.hidden = !m.hidden;
+    return;
+  }
+  const exItem = e.target.closest('#exportMenu [data-export]');
+  if (exItem) {
+    closeExportMenu();
+    if (exItem.dataset.export === 'csv') exportCsv(); else exportReport();
+    return;
+  }
   const eye = e.target.closest('button[data-eye="hostname"]');
   if (eye) {
     recShowHost = !recShowHost;
