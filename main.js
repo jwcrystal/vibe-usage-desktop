@@ -54,7 +54,7 @@ function createWindow() {
     title: 'Vibe Usage Desktop',
     icon: join(__dirname, 'build', 'icon.png'),
     show: false,
-    webPreferences: { preload: join(__dirname, 'preload.js') },
+    webPreferences: { preload: join(__dirname, 'preload.cjs') },
   });
   win.loadURL(DASHBOARD_URL);
   win.once('ready-to-show', () => win.show());
@@ -272,9 +272,16 @@ if (process.env.VIBE_DESKTOP_SMOKE === '1') {
     try {
       await startServer();
       const res = await fetch(DASHBOARD_URL);
-      const ok = res.status === 200 && (await res.text()).includes('<html');
-      console.log(`[smoke] GET / -> ${res.status}, html=${ok}`);
-      app.exit(ok ? 0 : 1);
+      const htmlOk = res.status === 200 && (await res.text()).includes('<html');
+      console.log(`[smoke] GET / -> ${res.status}, html=${htmlOk}`);
+      const probe = new BrowserWindow({
+        show: false,
+        webPreferences: { preload: join(__dirname, 'preload.cjs') },
+      });
+      await probe.loadURL(DASHBOARD_URL);
+      const bridgeOk = await probe.webContents.executeJavaScript('typeof window.vibeDesktop?.syncNow === "function"');
+      console.log(`[smoke] sandboxed preload sync bridge=${bridgeOk}`);
+      app.exit(htmlOk && bridgeOk ? 0 : 1);
     } catch (err) {
       console.error('[smoke] failed:', err);
       app.exit(1);

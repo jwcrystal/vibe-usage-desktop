@@ -4,7 +4,7 @@ directories:
   output: dist
 files:
   - main.js
-  - preload.js
+  - preload.cjs
   - server/**/*
   - cli/**/*
   - build/icon.png
