@@ -840,7 +840,7 @@ function recordsPanel(buckets) {
     '<button class="ghost" id="exportBtn" title="匯出目前範圍的資料" aria-haspopup="menu">⤓ 匯出 ⌄</button>' +
     '<div class="menu" id="exportMenu" hidden role="menu">' +
     '<button data-export="csv" title="' + (recShowHost ? '原始值明細（含終端與項目名稱）' : '原始值明細（含項目名稱）') + '">📄 明細 CSV</button>' +
-    '<button data-export="report" title="單頁 HTML，可列印成 PDF">📊 報表 HTML</button>' +
+    '<button data-export="report" title="獨立 HTML，可列印成 PDF">📊 報表 HTML</button>' +
     '</div></div>' +
     '<div class="table-scroll"><table class="records"><thead><tr>' + ths + '</tr></thead><tbody>' +
     (trs || '<tr><td colspan="10" class="muted" style="text-align:center;padding:20px">無記錄</td></tr>') +
@@ -900,7 +900,7 @@ function exportCsv() {
   URL.revokeObjectURL(a.href);
 }
 
-// ---- Single-page HTML report of the current range ----
+// ---- Self-contained HTML report of the current range ----
 // The presentation counterpart to the detail CSV: formatted values, KPI grid
 // with period-over-period deltas, and per-dimension breakdowns. Fully
 // self-contained (inline CSS, no scripts or external assets) so the file
@@ -916,41 +916,50 @@ function reportTable(title, rows, totalCost) {
   const trs = rows.map(([name, e]) =>
     '<tr><td>' + esc(name) + '</td><td>' + money(e.cost) + '</td><td>' + fmtTok(e.tokens) + '</td><td>' + pct(e.cost, totalCost) + '</td><td>' + fmtInt(e.n) + '</td></tr>'
   ).join('');
-  return '<section><h2>' + title + '</h2><table><thead><tr><th>名稱</th><th>費用</th><th>Token</th><th>佔比</th><th>Buckets</th></tr></thead><tbody>' +
+  return '<section><h2>' + title + '</h2><table><thead><tr><th>名稱</th><th>估算費用 (USD)</th><th>Token</th><th>費用佔比</th><th>資料筆數</th></tr></thead><tbody>' +
     (trs || '<tr><td colspan="5" class="muted2">無數據</td></tr>') + '</tbody></table></section>';
 }
 function reportHtml(meta, cur, pr, modelRows, toolRows, projectRows) {
   const k = (label, val, d) =>
     '<div class="kpi"><div class="l">' + label + '</div><div class="v">' + val + '</div>' + (d ? '<div class="d">' + d + '</div>' : '') + '</div>';
+  const detail = (label, val, d) =>
+    '<div class="detail"><dt>' + label + '</dt><dd>' + val + (d ? '<span class="d">' + d + '</span>' : '') + '</dd></div>';
   return '<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<title>vibe-usage 報表 ' + meta.from + ' ~ ' + meta.to + '</title><style>' +
     'body{font:14px/1.5 -apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;color:#1a1a1a;background:#fff;margin:24px auto;max-width:960px;padding:0 16px}' +
     'h1{font-size:18px;margin:0 0 4px}.sub{color:#666;font-size:12px;margin-bottom:4px}' +
     '.warn{background:#fff7e6;border:1px solid #f0d090;color:#8a6d1a;padding:8px 12px;border-radius:6px;font-size:12px;margin:12px 0}' +
-    '.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:16px 0}' +
-    '.kpi{border:1px solid #e5e5e5;border-radius:8px;padding:10px 12px}.kpi .l{font-size:11px;color:#888}.kpi .v{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}.kpi .d{font-size:11px;color:#999}' +
+    '.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:16px 0 8px}' +
+    '.kpi{border:1px solid #dedede;border-radius:8px;padding:14px 12px}.kpi .l{font-size:12px;color:#555}.kpi .v{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums}.d{font-size:11px;color:#666}.comparison{font-size:12px;color:#666;margin:8px 0 16px}' +
+    '.details{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:12px 0}.detail dt{font-size:12px;color:#666}.detail dd{margin:4px 0 0;font-weight:600;font-variant-numeric:tabular-nums}.detail .d{display:block;font-weight:400;margin-top:2px}' +
     'section{margin:18px 0}h2{font-size:13px;color:#555;border-bottom:1px solid #eee;padding-bottom:6px}' +
-    'table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:13px}th,td{padding:6px 10px;border-bottom:1px solid #eee}th{color:#888;font-weight:600;font-size:12px}th:first-child,td:first-child{text-align:left}th:not(:first-child),td:not(:first-child){text-align:right}' +
+    'table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:13px}th,td{padding:6px 10px;border-bottom:1px solid #eee}th{color:#666;font-weight:600;font-size:12px}th:first-child,td:first-child{text-align:left;overflow-wrap:anywhere}th:not(:first-child),td:not(:first-child){text-align:right}' +
     '.muted2{color:#999;text-align:center}.foot{color:#999;font-size:11px;margin-top:24px;border-top:1px solid #eee;padding-top:10px}' +
-    '@media print{body{margin:0}}' +
+    '@media screen and (max-width:600px){.kpis,.details{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi .v{font-size:20px}th,td{padding:6px 4px;font-size:11px}}' +
+    '@page{size:A4;margin:14mm}@media print{body{margin:0;max-width:none;padding:0}.kpi,.detail,.warn,tr{break-inside:avoid;page-break-inside:avoid}h2{break-after:avoid;page-break-after:avoid}thead{display:table-header-group}.kpi .v{font-size:20px}}' +
     '</style></head><body>' +
-    '<h1>vibe-usage 本地報表</h1>' +
+    '<h1>vibe-usage 用量報表</h1>' +
     '<div class="sub">範圍：' + meta.rangeLabel + '（' + meta.from + ' ~ ' + meta.to + '）' + (meta.filtersText ? ' · 篩選：' + esc(meta.filtersText) : '') + '</div>' +
     '<div class="sub">生成於 ' + meta.generatedAt + ' · ' + meta.counts + '</div>' +
     (meta.unpriced.length ? '<div class="warn">⚠ 未定價模型（費用未計入合計）：' + meta.unpriced.map(esc).join('、') + '</div>' : '') +
-    '<div class="kpis">' +
-    k('總成本', money(cur.cost), reportDelta(cur.cost, pr && pr.cost)) +
+    '<section><h2>用量摘要</h2><div class="kpis">' +
+    k('估算總成本 (USD)', money(cur.cost), reportDelta(cur.cost, pr && pr.cost)) +
     k('總 Token', fmtTok(cur.total), reportDelta(cur.total, pr && pr.total)) +
-    k('輸入 Token', fmtTok(cur.input), reportDelta(cur.input, pr && pr.input)) +
-    k('輸出 Token', fmtTok(cur.output), reportDelta(cur.output, pr && pr.output)) +
-    k('緩存讀 Token', fmtTok(cur.cached), reportDelta(cur.cached, pr && pr.cached)) +
-    k('緩存寫 Token', fmtTok(cur.cacheWrite), reportDelta(cur.cacheWrite, pr && pr.cacheWrite)) +
-    k('Active 時長', fmtH(cur.active), reportDelta(cur.active, pr && pr.active)) +
-    k('總時長', fmtH(cur.duration), reportDelta(cur.duration, pr && pr.duration)) +
-    k('會話數', fmtTok(cur.sessions), reportDelta(cur.sessions, pr && pr.sessions)) +
-    k('總消息數', fmtTok(cur.msgs), reportDelta(cur.msgs, pr && pr.msgs)) +
-    k('用戶消息數', fmtTok(cur.userMsgs), reportDelta(cur.userMsgs, pr && pr.userMsgs)) +
+    k('活躍時長', fmtH(cur.active), reportDelta(cur.active, pr && pr.active)) +
+    k('會話數', fmtInt(cur.sessions), reportDelta(cur.sessions, pr && pr.sessions)) +
     '</div>' +
+    (pr ? '<div class="comparison">各指標百分比為較上一期間變化。比較基準：' + esc(meta.prevFrom) + ' ~ ' + esc(meta.prevTo) + '（同等長度）</div>' : '') +
+    '</section><section><h2>Token 明細</h2><dl class="details">' +
+    detail('輸入 Token', fmtTok(cur.input), reportDelta(cur.input, pr && pr.input)) +
+    detail('輸出 Token', fmtTok(cur.output), reportDelta(cur.output, pr && pr.output)) +
+    detail('緩存讀取 Token', fmtTok(cur.cached), reportDelta(cur.cached, pr && pr.cached)) +
+    detail('緩存寫入 Token', fmtTok(cur.cacheWrite), reportDelta(cur.cacheWrite, pr && pr.cacheWrite)) +
+    '</dl></section><section><h2>其他活動</h2><dl class="details">' +
+    detail('總時長', fmtH(cur.duration), reportDelta(cur.duration, pr && pr.duration)) +
+    detail('總消息數', fmtInt(cur.msgs), reportDelta(cur.msgs, pr && pr.msgs)) +
+    detail('用戶消息數', fmtInt(cur.userMsgs), reportDelta(cur.userMsgs, pr && pr.userMsgs)) +
+    '</dl></section>' +
     reportTable('按模型', modelRows, cur.cost) +
     reportTable('按工具', toolRows, cur.cost) +
     reportTable('按項目', projectRows, cur.cost) +
@@ -963,15 +972,18 @@ function exportReport() {
   const { curMin, curMax, span } = data.rangeMeta;
   const sess = (data.sessions || []).filter((s) => sessInRange(s, curMin, curMax) && matchFilters(s));
   const cur = sumMetrics(buckets, sess, { min: curMin, max: curMax });
-  const pr = prev ? sumMetrics(prev.buckets || [], prev.sessions || [], { min: curMin - span, max: curMin }) : null;
+  const hasPrev = prev && ((prev.buckets || []).length || (prev.sessions || []).length);
+  const pr = hasPrev ? sumMetrics(prev.buckets || [], prev.sessions || [], { min: curMin - span, max: curMin }) : null;
   const unpriced = [...new Set(buckets.filter((b) => b.estimatedCost == null).map((b) => b.model || 'unknown'))];
   const activeFilters = FILTER_KEYS.filter((key) => filters[key]).map((key) => FILTER_LABELS[key] + '=' + filters[key]);
   const meta = {
     rangeLabel: rangeLabel(),
     from: fileDate(curMin),
     to: fileDate(curMax),
+    prevFrom: new Date(curMin - span).toLocaleString('zh-Hant', { hour12: false }),
+    prevTo: new Date(curMin).toLocaleString('zh-Hant', { hour12: false }),
     generatedAt: new Date().toLocaleString('zh-Hant', { hour12: false }),
-    counts: buckets.length + ' buckets · ' + sess.length + ' sessions',
+    counts: buckets.length + ' 筆資料 · ' + sess.length + ' 個會話',
     filtersText: activeFilters.join('、'),
     unpriced,
   };
