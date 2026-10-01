@@ -45,7 +45,8 @@
     "glm-5-turbo": { "input": 1.20, "output": 4.00, "cacheReadMtok": 0.24,  "vendor": "zhipu",   "source": "openrouter" },
 
     "gpt-6-astra":   { "input": 10.00, "output": 50.00, "cacheReadMtok": 1.00, "vendor": "openai", "source": "models.dev" },
-    "gpt-6-sol":     { "input": 2.00,  "output": 10.00, "cacheReadMtok": 0.20, "vendor": "openai", "source": "models.dev" },
+    "gpt-6-sol":     { "input": 2.00,  "output": 10.00, "cacheReadMtok": 0.10, "vendor": "openai", "source": "models.dev" },
+    "gpt-6.1-sol":   { "input": 2.00,  "output": 10.00, "cacheReadMtok": 0.10, "vendor": "openai", "source": "models.dev" },
     "gpt-6-luna":    { "input": 0.10,  "output": 0.50,  "cacheReadMtok": 0.01, "vendor": "openai", "source": "models.dev" },
     "gpt-5.6-sol":   { "input": 4.00, "output": 20.00, "cacheReadMtok": 0.40,  "vendor": "openai", "source": "official" },
     "gpt-5.6-terra": { "input": 2.00, "output": 12.00, "cacheReadMtok": 0.20,  "vendor": "openai", "source": "official" },
