@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
-import { loadData, saveData, ingestBuckets, getDataPath, hash } from './store.js';
+import { loadData, saveData, ingestBuckets, upsertQuotaSnapshots, getDataPath, hash } from './store.js';
 import { estimateCost } from './prices.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -13,6 +13,94 @@ const DASHBOARD_PATH = join(__dirname, 'ui', 'dashboard.html');
 
 const PORT = Number(process.env.PORT || process.env.VIBE_USAGE_PORT || 3456);
 const HOST = process.env.HOST || '127.0.0.1';
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+
+export function supportsQuotaSnapshots(host = HOST) {
+  return LOOPBACK_HOSTS.has(String(host).toLowerCase());
+}
+
+const SYNCABLE_QUOTA_IDS = new Set(['codex', 'commandcode', 'claude-code', 'opencode-go']);
+const QUOTA_EMPTY_REASONS = new Set(['limitReached', 'noWindow', 'notEntitled', 'sessionWithoutPlanLimits']);
+
+function validDate(value) {
+  if (typeof value !== 'string' || value.length > 64) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function sanitizeQuotaSnapshot(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)
+    || !SYNCABLE_QUOTA_IDS.has(raw.id) || !['ok', 'no_data'].includes(raw.status)
+    || !Array.isArray(raw.meters) || raw.meters.length > 20) return null;
+  const fetchedAt = validDate(raw.fetchedAt);
+  const dataAsOf = validDate(raw.dataAsOf || raw.fetchedAt);
+  if (!fetchedAt || !dataAsOf) return null;
+  const meters = [];
+  for (const meter of raw.meters) {
+    if (!meter || typeof meter !== 'object' || Array.isArray(meter)
+      || typeof meter.id !== 'string' || meter.id.length > 80
+      || typeof meter.label !== 'string' || meter.label.length > 80
+      || typeof meter.utilization !== 'number' || !Number.isFinite(meter.utilization)
+      || meter.utilization < 0 || meter.utilization > 100) return null;
+    const normalized = { id: meter.id, label: meter.label, utilization: meter.utilization };
+    if (meter.resetsAt !== undefined) {
+      const resetsAt = validDate(meter.resetsAt);
+      if (!resetsAt) return null;
+      normalized.resetsAt = resetsAt;
+    }
+    if (meter.windowSeconds !== undefined) {
+      if (typeof meter.windowSeconds !== 'number' || !Number.isFinite(meter.windowSeconds)
+        || meter.windowSeconds <= 0 || meter.windowSeconds > 10 * 365 * 24 * 3600) return null;
+      normalized.windowSeconds = meter.windowSeconds;
+    }
+    if (meter.amountUsed !== undefined || meter.amountLimit !== undefined) {
+      if (typeof meter.amountUsed !== 'number' || !Number.isFinite(meter.amountUsed)
+        || meter.amountUsed < 0 || meter.amountUsed > 1e9
+        || typeof meter.amountLimit !== 'number' || !Number.isFinite(meter.amountLimit)
+        || meter.amountLimit <= 0 || meter.amountLimit > 1e9) return null;
+      normalized.amountUsed = meter.amountUsed;
+      normalized.amountLimit = meter.amountLimit;
+    }
+    meters.push(normalized);
+  }
+  const snapshot = {
+    id: raw.id,
+    status: raw.status,
+    meters,
+    fetchedAt,
+    dataAsOf,
+  };
+  if (raw.resetCredits !== undefined && raw.resetCredits !== null) {
+    if (!Number.isInteger(raw.resetCredits) || raw.resetCredits < 0 || raw.resetCredits > 1_000_000) return null;
+    snapshot.resetCredits = raw.resetCredits;
+  }
+  if (raw.resetCreditsAt !== undefined && raw.resetCreditsAt !== null) {
+    if (!Array.isArray(raw.resetCreditsAt) || raw.resetCreditsAt.length > 8
+      || raw.resetCreditsAt.some((item) => typeof item !== 'string' || validDate(item) === null)) return null;
+    snapshot.resetCreditsAt = raw.resetCreditsAt.map(validDate);
+  }
+  if (raw.creditBalance !== undefined && raw.creditBalance !== null) {
+    if (typeof raw.creditBalance !== 'number' || !Number.isFinite(raw.creditBalance)
+      || raw.creditBalance < 0 || raw.creditBalance > 1e9) return null;
+    snapshot.creditBalance = raw.creditBalance;
+  }
+  if (typeof raw.planLabel === 'string' && raw.planLabel.trim() && raw.planLabel.length <= 80) {
+    snapshot.planLabel = raw.planLabel.trim();
+  }
+  if (['live', 'local', 'cache'].includes(raw.source)) snapshot.source = raw.source;
+  if (QUOTA_EMPTY_REASONS.has(raw.emptyReason)) snapshot.emptyReason = raw.emptyReason;
+  return snapshot;
+}
+
+function sanitizeQuotaSnapshots(raw) {
+  if (!Array.isArray(raw) || raw.length > SYNCABLE_QUOTA_IDS.size) return [];
+  const seen = new Set();
+  return raw.map(sanitizeQuotaSnapshot).filter(snapshot => {
+    if (!snapshot || seen.has(snapshot.id)) return false;
+    seen.add(snapshot.id);
+    return true;
+  });
+}
 
 // API key expected by this server. Resolution order:
 //   1. VIBE_USAGE_SERVER_KEY env (explicit)
@@ -96,6 +184,29 @@ function serveDashboard(req, res) {
   res.end(buf);
 }
 
+// Static product icons for the quota card, vendored from the Mac app's
+// Resources into src/ui/icons/. Strict filename whitelist — no traversal,
+// no directory listing.
+const ICON_DIR = join(__dirname, 'ui', 'icons');
+const ICON_TYPES = { '.png': 'image/png', '.svg': 'image/svg+xml' };
+function serveUiAsset(res, name) {
+  if (!/^[a-z0-9-]+(@2x)?\.(png|svg)$/.test(name)) {
+    return sendJson(res, 404, { error: 'not_found' });
+  }
+  let body;
+  try {
+    body = readFileSync(join(ICON_DIR, name));
+  } catch {
+    return sendJson(res, 404, { error: 'not_found' });
+  }
+  res.writeHead(200, {
+    'Content-Type': ICON_TYPES[name.slice(name.lastIndexOf('.'))],
+    'Content-Length': body.length,
+    'Cache-Control': 'public, max-age=604800',
+  });
+  res.end(body);
+}
+
 // Parse bucketStart into a Date. Accepts full ISO (with/without fractional
 // seconds) — ISO strings sort/compare lexically when the offset is fixed.
 function bucketTime(iso) {
@@ -155,9 +266,18 @@ const router = {
     // to all existing data immediately — that is the whole point of 本地調價.
     const data = loadData();
     const stats = ingestBuckets(data, incomingBuckets, incomingSessions);
+    let quotas = { accepted: 0, unchanged: 0 };
+    if (supportsQuotaSnapshots() && Array.isArray(payload.quotas)) {
+      const hostname = payload.client?.hostname;
+      if (typeof hostname === 'string' && hostname.trim() && hostname.length <= 255
+        && !/[\u0000-\u001f\u007f]/.test(hostname)) {
+        const snapshots = sanitizeQuotaSnapshots(payload.quotas);
+        quotas = upsertQuotaSnapshots(data, hostname.trim(), snapshots);
+      }
+    }
     saveData(data);
 
-    sendJson(res, 200, stats);
+    sendJson(res, 200, { ...stats, quotas });
   },
 
   'GET /api/usage'(req, res) {
@@ -180,6 +300,7 @@ const router = {
     sendJson(res, 200, {
       buckets,
       sessions: data.sessions,
+      quotas: data.quotas || [],
       hasAnyData: data.buckets.length > 0,
       unpricedModels,
     });
@@ -189,7 +310,7 @@ const router = {
     if (!authorize(req)) return sendJson(res, 401, { error: 'UNAUTHORIZED' });
     // Fully local: always upload project names (no privacy concern sending to
     // your own machine).
-    sendJson(res, 200, { uploadProject: true });
+    sendJson(res, 200, { uploadProject: true, quotaSnapshots: supportsQuotaSnapshots() });
   },
 
   'DELETE /api/usage/ingest'(req, res) {
@@ -205,11 +326,15 @@ const router = {
         return true;
       });
       data.sessions = data.sessions.filter((s) => s.hostname !== hostname);
+      const quotaCount = data.quotas.length;
+      data.quotas = data.quotas.filter((snapshot) => snapshot.hostname !== hostname);
       deleted = before - data.buckets.length;
+      deleted += quotaCount - data.quotas.length;
     } else {
-      deleted = data.buckets.length + data.sessions.length;
+      deleted = data.buckets.length + data.sessions.length + data.quotas.length;
       data.buckets = [];
       data.sessions = [];
+      data.quotas = [];
     }
     saveData(data);
     sendJson(res, 200, { deleted });
@@ -253,6 +378,9 @@ const server = http.createServer((req, res) => {
     if (req.method === 'GET' && (path === '' || path === '/' || path === '/usage' || path === '/index.html')) {
       return serveDashboard(req, res);
     }
+    if (req.method === 'GET' && path.startsWith('/ui-assets/')) {
+      return serveUiAsset(res, path.slice('/ui-assets/'.length));
+    }
     sendJson(res, 404, { error: 'not_found' });
     return;
   }
@@ -263,8 +391,6 @@ const server = http.createServer((req, res) => {
 
 // Tests may bind the server to an ephemeral port.
 export { server };
-
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 
 // Permissive auth (no configured key) accepts any vbu_-prefixed key. That is
 // only acceptable on a loopback interface — refuse to bind anything wider.

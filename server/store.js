@@ -36,6 +36,7 @@ function normalize(parsed) {
   return {
     buckets: Array.isArray(parsed.buckets) ? parsed.buckets : [],
     sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
+    quotas: Array.isArray(parsed.quotas) ? parsed.quotas : [],
   };
 }
 
@@ -66,7 +67,7 @@ export function loadData() {
     console.warn(`[store] recovered from ${BAK_FILE}`);
     return normalize(bak);
   }
-  return { buckets: [], sessions: [] };
+  return { buckets: [], sessions: [], quotas: [] };
 }
 
 function saveData(data) {
@@ -132,6 +133,31 @@ export function ingestBuckets(data, incomingBuckets, incomingSessions) {
   data.sessions = [...sessByKey.values()];
 
   return stats;
+}
+
+export function upsertQuotaSnapshots(data, hostname, incoming) {
+  const byKey = new Map();
+  for (const snapshot of data.quotas || []) {
+    if (typeof snapshot?.hostname === 'string' && typeof snapshot?.id === 'string') {
+      byKey.set(`${snapshot.hostname}\0${snapshot.id}`, snapshot);
+    }
+  }
+  let accepted = 0;
+  let unchanged = 0;
+  for (const snapshot of incoming) {
+    const key = `${hostname}\0${snapshot.id}`;
+    const current = byKey.get(key);
+    const incomingAsOf = Date.parse(snapshot.dataAsOf);
+    const currentAsOf = current ? Date.parse(current.dataAsOf) : -Infinity;
+    if (current && incomingAsOf < currentAsOf) {
+      unchanged += 1;
+      continue;
+    }
+    byKey.set(key, { ...snapshot, hostname });
+    accepted += 1;
+  }
+  data.quotas = [...byKey.values()];
+  return { accepted, unchanged };
 }
 
 function isPlausible(b) {
