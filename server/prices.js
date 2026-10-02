@@ -22,7 +22,9 @@ function readOverride(file) {
 export function loadPrices() {
   try {
     const parsed = readOverride(join(DATA_DIR, 'prices.json'));
-    if (parsed) return parsed;
+    // An override replaces the model-keyed table, but the embedded
+    // source-scoped tables must survive unless the override defines its own.
+    if (parsed) return parsed.sources ? parsed : { ...parsed, sources: defaultPrices.sources };
   } catch {
     // Malformed or unreadable — fall through to the embedded default.
   }
@@ -36,7 +38,11 @@ export function loadPrices() {
 // cacheWriteMtok is optional (missing = 0): models without a published
 // cache-write price keep their previous cost unchanged.
 export function estimateCost(bucket, prices = loadPrices()) {
-  const entry = prices.models[bucket.model];
+  // A source-scoped table lets a few ids that Command Code serves at its own
+  // catalog price coexist with the same id from another vendor at a different
+  // price (e.g. gpt-5.6-sol). Everything else keeps the model-keyed lookup.
+  const entry = prices.sources?.[bucket.source]?.models?.[bucket.model]
+    ?? prices.models[bucket.model];
   if (!entry) return null;
   const perToken = {
     input: (entry.input ?? 0) / 1_000_000,
