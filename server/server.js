@@ -367,6 +367,10 @@ const router = {
       uploadProject: true,
       quotaSnapshots: supportsQuotaSnapshots(),
       quotaSyncProducts: supportsQuotaSnapshots() ? readQuotaSyncConfig() : [],
+      // Buckets may carry firstCallAt/lastCallAt (actual model-call times
+      // for the 詳細記錄 table). Loopback-only luxury; the hosted service
+      // never sets it, so the CLI keeps the wire format unchanged there.
+      bucketCallTimestamps: supportsQuotaSnapshots(),
     });
   },
 

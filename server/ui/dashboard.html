@@ -138,6 +138,9 @@
   .quota-skel-bar { display: block; width: 100%; height: 6px; }
   .quota-skel-reset { width: 110px; height: 9px; }
   .quota-stale { color: #fbbf24; }
+  .sync-toast { position: fixed; top: 12px; left: 50%; transform: translate(-50%, -6px); z-index: 1100; background: #222; border: 1px solid #454545; border-radius: var(--radius-lg); padding: 6px 12px; font-size: 11px; color: var(--text2); opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; max-width: 80%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sync-toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .sync-toast.bad { color: #f87171; border-color: #7a3333; }
   /* records panel header row: title + export dropdown */
   .panel-h { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); position: relative; }
   .panel-h h2 { border-bottom: none; flex: 1; }
@@ -1085,7 +1088,12 @@ function recRowHtml(b) {
   const cost = b.estimatedCost == null;
   const hostVal = recShowHost ? esc(b.hostname || '—') : '•••';
   return '<tr>' +
-    '<td>' + fmtLocalDT(b.bucketStart) + '</td>' +
+    '<td' + (b.lastCallAt
+      ? ' data-tip="' + esc('桶 ' + fmtLocalDT(b.bucketStart) + ' · 實際呼叫 ' +
+          (b.firstCallAt && b.firstCallAt !== b.lastCallAt
+            ? fmtLocalDT(b.firstCallAt) + ' ~ ' + fmtLocalDT(b.lastCallAt)
+            : fmtLocalDT(b.lastCallAt))) + '"'
+      : '') + '>' + fmtLocalDT(b.lastCallAt || b.bucketStart) + '</td>' +
     '<td class="name' + (recShowHost ? '' : ' masked') + '" data-tip="' + (recShowHost ? '終端：' + esc(b.hostname || '—') : '點擊眼睛顯示終端') + '">' + hostVal + '</td>' +
     '<td><span class="tool-badge">' + esc(b.source || '—') + '</span></td>' +
     '<td class="name" data-tip="項目：' + esc(b.project || '—') + '">' + esc(b.project || '—') + '</td>' +
@@ -1483,17 +1491,49 @@ syncRangeButtons();
 // Manual refresh: in the Electron app, first run a one-shot CLI sync (parse
 // local usage files -> POST) via window.vibeDesktop, then re-fetch the view;
 // in a plain browser vibeDesktop is absent and this is display-only.
+let syncToastEl = null;
+// CLI output arrives in the upstream project's simplified Chinese; the
+// dashboard speaks Traditional, so the note converts the known vocabulary
+// instead of pasting raw output.
+const SYNC_S2T = [
+  ['服务端', '伺服器'], ['订阅配额', '訂閱配額'], ['数据', '資料'], ['上传', '上傳'],
+  ['已压缩', '已壓縮'], ['失败', '失敗'], ['覆盖', '覆蓋'], ['较小', '較小'],
+  ['个', '個'], ['项', '項'], ['详情', '詳情'],
+];
+const toHant = (line) => SYNC_S2T.reduce((acc, [s, t]) => acc.split(s).join(t), line);
+
+function showSyncNote(text, bad) {
+  if (!syncToastEl) {
+    syncToastEl = document.createElement('div');
+    syncToastEl.className = 'sync-toast';
+    syncToastEl.setAttribute('aria-live', 'polite');
+    document.body.appendChild(syncToastEl);
+  }
+  syncToastEl.textContent = text;
+  syncToastEl.classList.toggle('bad', bad === true);
+  syncToastEl.classList.add('show');
+  clearTimeout(showSyncNote._t);
+  showSyncNote._t = setTimeout(() => syncToastEl.classList.remove('show'), 3000);
+}
+
 async function refreshNow() {
   const btn = document.getElementById('refresh');
   btn.classList.add('spinning');
   try {
     if (window.vibeDesktop) {
+      // Desktop: the button really syncs (bundled CLI re-reads local usage
+      // files and uploads). Surface what it did at the top of the page —
+      // "records did not change" must not be ambiguous between "nothing
+      // new" and "it failed".
       const res = await window.vibeDesktop.syncNow();
+      const out = res && typeof res.out === 'string' ? res.out : '';
+      const picks = out.split('\n')
+        .map((l) => l.replace(/\x1b\[[0-9;]*m/g, '').trim())
+        .filter((l) => /上传 |保留了|已同步|订阅配额/.test(l) && !/上传中/.test(l));
       if (res && res.ok === false) {
-        // The CLI sync is the data half of this button; failing silently
-        // would read like "no new usage". Say so, briefly.
-        btn.textContent = '同步失敗';
-        setTimeout(() => { btn.innerHTML = '<span class="icon">↻</span> 更新'; }, 2500);
+        showSyncNote('同步失敗', true);
+      } else {
+        showSyncNote(picks.slice(-2).map(toHant).join(' · ') || '已同步', false);
       }
     }
   } catch { /* sync best-effort — still refresh the view */ }
