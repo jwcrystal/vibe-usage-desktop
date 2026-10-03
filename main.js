@@ -1,7 +1,7 @@
 import { app, BrowserWindow, Tray, Menu, dialog, nativeImage, ipcMain } from 'electron';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, writeFileSync, chmodSync, watch } from 'node:fs';
 import { join, dirname, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -74,6 +74,7 @@ function createTray() {
   tray = new Tray(icon);
   tray.setToolTip('Vibe Usage Desktop');
   refreshTrayMenu();
+  watchQuotaConfig();
   tray.on('click', () => { if (!win) createWindow(); win.show(); win.focus(); });
 }
 
@@ -129,6 +130,23 @@ function toggleQuotaProduct(id, on) {
   const done = quotaToggling.finally(() => { quotaToggling = null; });
   quotaToggling = done;
   return done;
+}
+
+// The tray mirrors quotaSyncProducts from the shared config; the web 管理
+// menu, the CLI (`quota sync enable/disable`), and manual edits all write
+// that same file — watch it so the checkboxes never go stale, whichever
+// surface changed it. Atomic writers replace the file (rename), so watch
+// the directory and filter by name.
+function watchQuotaConfig() {
+  const dir = process.env.VIBE_USAGE_CONFIG_DIR?.trim() || join(homedir(), '.vibe-usage');
+  let timer = null;
+  try {
+    watch(dir, (_event, fileName) => {
+      if (fileName && fileName !== 'config.json') return;
+      clearTimeout(timer);
+      timer = setTimeout(() => { if (tray) refreshTrayMenu(); }, 250);
+    });
+  } catch { /* config dir may not exist on a fresh machine yet */ }
 }
 
 function refreshTrayMenu() {

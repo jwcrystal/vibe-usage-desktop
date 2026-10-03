@@ -1486,7 +1486,17 @@ syncRangeButtons();
 async function refreshNow() {
   const btn = document.getElementById('refresh');
   btn.classList.add('spinning');
-  try { if (window.vibeDesktop) await window.vibeDesktop.syncNow(); } catch { /* sync best-effort — still refresh the view */ }
+  try {
+    if (window.vibeDesktop) {
+      const res = await window.vibeDesktop.syncNow();
+      if (res && res.ok === false) {
+        // The CLI sync is the data half of this button; failing silently
+        // would read like "no new usage". Say so, briefly.
+        btn.textContent = '同步失敗';
+        setTimeout(() => { btn.innerHTML = '<span class="icon">↻</span> 更新'; }, 2500);
+      }
+    }
+  } catch { /* sync best-effort — still refresh the view */ }
   btn.classList.remove('spinning');
   load();
 }
