@@ -1,18 +1,28 @@
 export const QUOTA_SCHEMA_VERSION = 1;
 
 export const QUOTA_PRODUCT_IDS = Object.freeze([
+  'codex',
   'kimi-code',
   'zcode',
   'grok',
   'opencode-go',
+  'commandcode',
+  'claude-code',
   'cursor',
 ]);
 
 export const FETCHABLE_QUOTA_PRODUCT_IDS = Object.freeze([
+  'codex',
   'kimi-code',
   'zcode',
   'grok',
   'opencode-go',
+  'commandcode',
+  'claude-code',
+]);
+
+export const QUOTA_SYNC_PRODUCT_IDS = Object.freeze([
+  'codex', 'commandcode', 'claude-code', 'opencode-go',
 ]);
 
 /**
@@ -26,6 +36,11 @@ export const QUOTA_EMPTY_REASONS = Object.freeze([
   'noWindow',
   'notEntitled',
   'sessionWithoutPlanLimits',
+  // Definitive "nothing to show yet" answers uploaded by quota sync so the
+  // dashboard can render an actionable card state instead of an endless
+  // loading skeleton: the tool/login is missing, or the login was rejected.
+  'notDetected',
+  'unauthorized',
 ]);
 
 const FETCH_STATUSES = new Set([
@@ -70,6 +85,17 @@ export function normalizeMeter(raw, index = 0) {
   if (raw.windowSeconds !== undefined && raw.windowSeconds !== null) {
     const seconds = finiteNumber(raw.windowSeconds, `meters[${index}].windowSeconds`);
     if (seconds > 0) meter.windowSeconds = seconds;
+  }
+  // Optional dollar amount pair (USD, e.g. Command Code's window cap and
+  // monthly credit pool). The two sides only travel together: a used without
+  // a limit would invite the UI to invent one.
+  if (raw.amountUsed !== undefined || raw.amountLimit !== undefined) {
+    const amountUsed = finiteNumber(raw.amountUsed, `meters[${index}].amountUsed`);
+    const amountLimit = finiteNumber(raw.amountLimit, `meters[${index}].amountLimit`);
+    if (amountUsed < 0) throw new TypeError(`meters[${index}].amountUsed must be non-negative`);
+    if (amountLimit <= 0) throw new TypeError(`meters[${index}].amountLimit must be positive`);
+    meter.amountUsed = amountUsed;
+    meter.amountLimit = amountLimit;
   }
   return meter;
 }
@@ -138,6 +164,9 @@ export function quotaResult({
   status,
   meters = [],
   planLabel,
+  resetCredits,
+  resetCreditsAt,
+  creditBalance,
   fetchedAt = new Date(),
   dataAsOf = fetchedAt,
   message,
@@ -159,6 +188,29 @@ export function quotaResult({
   };
   const normalizedDataAsOf = optionalISODate(dataAsOf, 'dataAsOf');
   if (normalizedDataAsOf) result.dataAsOf = normalizedDataAsOf;
+  if (resetCredits !== undefined && resetCredits !== null) {
+    if (!Number.isInteger(resetCredits) || resetCredits < 0 || resetCredits > 1_000_000) {
+      throw new TypeError('resetCredits must be a non-negative integer');
+    }
+    result.resetCredits = resetCredits;
+  }
+  if (resetCreditsAt !== undefined && resetCreditsAt !== null) {
+    if (!Array.isArray(resetCreditsAt) || resetCreditsAt.length > 8
+      || resetCreditsAt.some((item) => typeof item !== 'string')) {
+      throw new TypeError('resetCreditsAt must be ISO date strings');
+    }
+    const dates = resetCreditsAt
+      .map((item) => optionalISODate(item, 'resetCreditsAt'))
+      .filter((item) => item !== undefined);
+    if (dates.length) result.resetCreditsAt = dates;
+  }
+  if (creditBalance !== undefined && creditBalance !== null) {
+    if (typeof creditBalance !== 'number' || !Number.isFinite(creditBalance)
+      || creditBalance < 0 || creditBalance > 1e9) {
+      throw new TypeError('creditBalance must be a non-negative finite number');
+    }
+    result.creditBalance = creditBalance;
+  }
   if (typeof planLabel === 'string' && planLabel.trim()) result.planLabel = planLabel.trim();
   if (typeof message === 'string' && message.trim()) result.message = message.trim();
   if (emptyReason !== undefined && emptyReason !== null) {

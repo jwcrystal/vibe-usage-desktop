@@ -2,6 +2,9 @@ import { accessSync, constants, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { loadCachedQuota, saveCachedQuota } from './cache.js';
+import { codexQuotaDetected, fetchCodexQuota } from './providers/codex.js';
+import { fetchClaudeCodeQuota, findClaudeBinary } from './providers/claude-code.js';
+import { fetchCommandcodeQuota } from './providers/commandcode.js';
 import { fetchGrokQuota } from './providers/grok.js';
 import { fetchKimiCodeQuota } from './providers/kimi-code.js';
 import { fetchOpenCodeGoQuota } from './providers/opencode-go.js';
@@ -9,10 +12,13 @@ import { fetchZaiQuota } from './providers/zai.js';
 import { FETCHABLE_QUOTA_PRODUCT_IDS, quotaEnvelope, quotaResult } from './schema.js';
 
 const providers = new Map([
+  ['codex', fetchCodexQuota],
   ['kimi-code', fetchKimiCodeQuota],
   ['zcode', fetchZaiQuota],
   ['grok', fetchGrokQuota],
   ['opencode-go', fetchOpenCodeGoQuota],
+  ['commandcode', fetchCommandcodeQuota],
+  ['claude-code', fetchClaudeCodeQuota],
 ]);
 
 function executableExists(name, environment, platform) {
@@ -58,6 +64,11 @@ export function discoverQuotaProducts({
     : join(home, '.grok');
   return quotaEnvelope([
     {
+      id: 'codex',
+      detected: codexQuotaDetected(environment, home),
+      fetchable: true,
+    },
+    {
       id: 'kimi-code',
       detected: existsAny([join(home, '.kimi'), join(home, '.kimi-code')])
         || executableExists('kimi', environment, platform),
@@ -79,6 +90,19 @@ export function discoverQuotaProducts({
       id: 'opencode-go',
       detected: existsAny([join(home, '.local', 'share', 'opencode')])
         || executableExists('opencode', environment, platform),
+      fetchable: true,
+    },
+    {
+      // File-existence only: discovery checks for CommandCode's own auth file
+      // and never opens or reads it (a bare `~/.commandcode` directory is not
+      // a presence signal); the fetch path checks the key.
+      id: 'commandcode',
+      detected: existsSync(join(home, '.commandcode', 'auth.json')),
+      fetchable: true,
+    },
+    {
+      id: 'claude-code',
+      detected: findClaudeBinary({ environment, home }) !== null,
       fetchable: true,
     },
     {
