@@ -82,9 +82,11 @@
 
   .panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 20px; }
   .panel h2 { font-size: 13px; padding: 12px 16px; border-bottom: 1px solid var(--border); color: var(--text2); font-weight: 600; }
-  .quota-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; padding: 12px; }
-  .quota-card { min-width: 0; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; cursor: help; }
-  .quota-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .quota-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 12px; padding: 12px; }
+  .quota-card { width: 100%; max-width: 440px; min-width: 0; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; cursor: help; }
+  .quota-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+  .quota-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .quota-actions button:focus-visible { outline: 2px solid var(--text2); outline-offset: 3px; }
   .quota-glyph { width: 18px; height: 18px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
   .glyph-codex { color: #5bb8ff; background: rgba(91,184,255,.14); }
   .glyph-commandcode { color: #c3a6ff; background: rgba(195,166,255,.14); }
@@ -95,28 +97,45 @@
   .quota-mode button { background: transparent; color: var(--text3); border: 1px solid var(--border); border-radius: var(--radius); padding: 2px 8px; cursor: pointer; font-size: 10px; }
   .quota-mode button.active { background: var(--bg); color: var(--text); border-color: var(--text3); }
   .quota-mode button:hover { color: var(--text2); border-color: var(--text3); }
+  .quota-manage { position: relative; }
+  .quota-manage > button { background: transparent; color: var(--text2); border: 1px solid var(--border); border-radius: var(--radius); padding: 5px 14px; cursor: pointer; font-size: 12px; }
+  .quota-manage > button:hover { border-color: var(--text3); color: var(--text); }
+  .quota-manage .menu { right: 0; }
+  .quota-manage .menu button[data-quota-product] { color: var(--text2); }
+  .quota-manage .menu button[data-quota-product]:hover { color: var(--text); }
   .quota-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .quota-chip { flex-shrink: 0; color: #fbbf24; background: rgba(251,191,36,.13); border-radius: 999px; padding: 2px 8px; font-size: 10px; font-weight: 600; }
   .quota-plan { flex-shrink: 0; background: #2f2f2f; color: #d4d4d4; border-radius: 6px; padding: 2px 8px; font-size: 10px; font-weight: 600; }
-  .quota-right { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; min-width: 0; }
+  .quota-right { margin-left: auto; display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; max-width: 100%; }
   .quota-amount { color: var(--text2); font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .quota-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text3); font-size: 10px; margin-top: 12px; }
   .quota-meters { display: grid; gap: 12px; margin: 14px 0 0; }
-  .quota-meter { display: grid; grid-template-columns: 84px minmax(0, 1fr) 44px; gap: 10px; align-items: center; }
-  .quota-meter-labelwrap { min-width: 0; }
+  .quota-meter { display: grid; gap: 6px; min-width: 0; }
+  .quota-meter-labelwrap { min-width: 0; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
   .quota-meter-label { display: block; color: var(--text2); font-size: 11px; font-weight: 600; }
-  .quota-meter-reset { display: block; color: var(--text3); font-size: 9px; margin-top: 2px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .quota-meter-reset { display: block; color: var(--text2); font-size: 10px; font-variant-numeric: tabular-nums; }
   .quota-bars { min-width: 0; }
   .quota-track { height: 6px; background: #2a2a2a; border-radius: 99px; overflow: hidden; }
   .quota-fill { height: 100%; background: #d4d4d4; border-radius: inherit; }
   .quota-fill.warn { background: #fbbf24; }
   .quota-fill.full { background: #f87171; }
-  .quota-elapsed { height: 3px; margin-top: 3px; background: #2a2a2a; border-radius: 99px; overflow: hidden; }
+  .quota-elapsed { height: 3px; margin-top: 4px; background: #2a2a2a; border-radius: 99px; overflow: hidden; }
   .quota-elapsed i { display: block; height: 100%; background: #6b6b6b; border-radius: inherit; }
   .quota-meter-value { text-align: right; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: #d4d4d4; }
   .quota-meter-value.warn { color: #fbbf24; }
   .quota-meter-value.full { color: #f87171; }
   .quota-empty { color: var(--text3); font-size: 11px; padding: 18px 2px; }
+  .quota-hint { color: var(--text3); font-size: 11px; padding: 0 14px 14px; }
+  /* Skeleton state: an enabled-but-not-yet-fetched product keeps the card
+     frame (and its row height) while waiting for the next sync. */
+  .quota-card[aria-busy="true"] { cursor: default; }
+  .quota-skel { display: inline-block; background: #2a2a2a; border-radius: 99px; position: relative; overflow: hidden; }
+  .quota-skel::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, rgba(255,255,255,.07), transparent); animation: quotaSkel 1.6s ease-in-out infinite; }
+  @keyframes quotaSkel { to { transform: translateX(100%); } }
+  .quota-skel-label { width: 30px; height: 11px; }
+  .quota-skel-value { width: 74px; height: 13px; }
+  .quota-skel-bar { display: block; width: 100%; height: 6px; }
+  .quota-skel-reset { width: 110px; height: 9px; }
   .quota-stale { color: #fbbf24; }
   /* records panel header row: title + export dropdown */
   .panel-h { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); position: relative; }
@@ -437,7 +456,7 @@ function updateMetaOnly() {
 // NOTE: rangeMeta is excluded — rolling windows embed Date.now() and would
 // defeat the comparison. `range` (user selection) + data + prev is enough.
 function renderIfChanged() {
-  const sig = JSON.stringify([range, data.buckets, data.sessions, data.quotas, prev, quotaMode]);
+  const sig = JSON.stringify([range, data.buckets, data.sessions, data.quotas, prev, quotaMode, data.quotaSync]);
   if (sig === lastSig) { updateMetaOnly(); return; }
   const first = lastSig === null;
   lastSig = sig;
@@ -555,7 +574,8 @@ function render() {
     ? '<div class="unpriced-banner" data-tip="' + esc('未計價模型：\n' + data.unpricedModels.join('\n')) + '">⚠ ' +
       data.unpricedModels.length + ' 個模型不在價格表，其費用未計入 — 補 prices.json 後即時生效</div>'
     : '';
-  const quotasHtml = quotaPanel(data.quotas || [], quotaMode);
+  const quotasHtml = quotaPanel(data.quotas || [], quotaMode,
+    (data.quotaSync && data.quotaSync.products) || null);
   $('#app').innerHTML =
     unpricedHtml +
     quotasHtml +
@@ -571,8 +591,13 @@ function render() {
     recordsPanel(buckets);
 }
 
-function quotaPanel(snapshots, mode) {
-  if (!snapshots.length) return '';
+function quotaPanel(snapshots, mode, manage) {
+  // With the manage list present, card presence follows the opt-in switch:
+  // enabled products are permanent residents (placeholder until their first
+  // snapshot lands), disabled ones are hidden regardless of stored data.
+  // Without it (legacy server), cards fall back to snapshot-driven rendering.
+  const managed = Array.isArray(manage);
+  if (!snapshots.length && !managed) return '';
   const now = Date.now();
   // Hostnames only earn their place when the server actually serves several.
   const multiHost = new Set(snapshots.map((snapshot) => snapshot.hostname)).size > 1;
@@ -599,6 +624,8 @@ function quotaPanel(snapshots, mode) {
     noWindow: '目前沒有生效的配額窗口',
     notEntitled: '此帳戶未訂閱',
     sessionWithoutPlanLimits: '目前登入方式沒有訂閱配額',
+    notDetected: '未偵測到本機安裝或登入 · 請先配置該工具',
+    unauthorized: '登入已過期或被拒絕 · 請在該工具重新登入',
   };
   // Urgency always follows the USED amount, whichever side of the bar is shown.
   const tier = (used) => (used >= 95 ? 'full' : used >= 80 ? 'warn' : '');
@@ -626,14 +653,16 @@ function quotaPanel(snapshots, mode) {
     }).filter(Boolean);
     return lines.length ? '重置券到期日\n' + lines.join('\n') : undefined;
   };
-  const cards = snapshots.slice().sort((a, b) => (names[a.id] || a.id).localeCompare(names[b.id] || b.id))
-    .map((snapshot) => {
+  const iconFor = (id, label) => {
+    const file = iconFiles[id];
+    const glyph = glyphs[id] || [label.slice(0, 1).toUpperCase(), ''];
+    return file
+      ? '<img class="quota-glyph-img" src="/ui-assets/' + file + '" alt="" data-fb="' + esc(glyph[0]) + '" data-fbc="' + glyph[1] + '" onerror="var fb=document.createElement(\'span\');fb.className=\'quota-glyph \'+this.dataset.fbc;fb.textContent=this.dataset.fb;this.replaceWith(fb);">'
+      : '<span class="quota-glyph ' + glyph[1] + '">' + esc(glyph[0]) + '</span>';
+  };
+  const renderCard = (snapshot) => {
       const label = names[snapshot.id] || snapshot.id;
-      const glyph = glyphs[snapshot.id] || [label.slice(0, 1).toUpperCase(), ''];
-      const iconFile = iconFiles[snapshot.id];
-      const iconHtml = iconFile
-        ? '<img class="quota-glyph-img" src="/ui-assets/' + iconFile + '" alt="" data-fb="' + esc(glyph[0]) + '" data-fbc="' + glyph[1] + '" onerror="var fb=document.createElement(\'span\');fb.className=\'quota-glyph \'+this.dataset.fbc;fb.textContent=this.dataset.fb;this.replaceWith(fb);">'
-        : '<span class="quota-glyph ' + glyph[1] + '">' + esc(glyph[0]) + '</span>';
+      const iconHtml = iconFor(snapshot.id, label);
       const asOf = new Date(snapshot.dataAsOf || snapshot.fetchedAt);
       const ageMinutes = Number.isNaN(asOf.getTime()) ? null : Math.max(0, Math.floor((now - asOf.getTime()) / 60000));
       const stale = ageMinutes !== null && ageMinutes > 5;
@@ -647,20 +676,25 @@ function quotaPanel(snapshots, mode) {
         let resetNote = '';
         let elapsedHtml = '';
         if (!Number.isNaN(resetAt) && resetAt > now) {
-          resetNote = relTime(resetAt - now) + '後重置';
+          // Countdown for near resets (actionable), a date for distant ones
+          // ("30 天 3 小時後" is unreadable); the exact clock time stays in
+          // the card tooltip either way.
+          resetNote = (resetAt - now <= 48 * 3600000
+            ? relTime(resetAt - now)
+            : new Date(resetAt).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' })) + '後重置';
           if (meter.windowSeconds > 0) {
             const start = resetAt - meter.windowSeconds * 1000;
             const elapsed = Math.max(0, Math.min(100, (now - start) / (meter.windowSeconds * 1000) * 100));
-            elapsedHtml = '<div class="quota-elapsed"><i style="width:' + elapsed + '%"></i></div>';
+            const elapsedTip = '週期已過 ' + elapsed.toFixed(0) + '%（時間進度，非配額用量）';
+            elapsedHtml = '<div class="quota-elapsed" data-tip="' + elapsedTip + '" title="' + elapsedTip + '"><i style="width:' + elapsed + '%"></i></div>';
           }
         }
         tip.push(meter.label + '：已用 ' + Math.round(used) + '% · 剩餘 ' + Math.round(100 - used) + '%' + (meter.amountLimit > 0 ? '（' + money2(meter.amountUsed) + ' of ' + money2(meter.amountLimit) + '）' : '') + (resetAt > now ? ' · ' + clock(meter.resetsAt) + ' 重置' : ''));
         return '<div class="quota-meter">' +
           '<div class="quota-meter-labelwrap"><span class="quota-meter-label">' + esc(meter.label) + '</span>' +
-          (resetNote ? '<span class="quota-meter-reset">' + esc(resetNote) + '</span>' : '') +
-          '</div>' +
+          '<span class="quota-meter-value ' + t + '">' + (mode === 'remaining' ? '剩餘 ' : '已用 ') + shown.toFixed(0) + '%</span></div>' +
           '<div class="quota-bars"><div class="quota-track"><div class="quota-fill ' + t + '" style="width:' + shown + '%"></div></div>' + elapsedHtml + '</div>' +
-          '<span class="quota-meter-value ' + t + '">' + shown.toFixed(0) + '%</span></div>';
+          (resetNote ? '<span class="quota-meter-reset">' + esc(resetNote) + '</span>' : '') + '</div>';
       }).join('');
       const amountMeter = [...snapshot.meters].reverse().find((m) => Number(m.amountLimit) > 0);
       let amountHtml = '';
@@ -695,13 +729,43 @@ function quotaPanel(snapshots, mode) {
       if (multiHost && snapshot.hostname) footParts.push('<span>' + esc(snapshot.hostname) + '</span>');
       if (stale) footParts.push('<span class="quota-stale">資料截至 ' + esc(ageLabel) + '</span>');
       return cardOpen + (footParts.length ? '<div class="quota-foot">' + footParts.join('') + '</div>' : '') + '</article>';
+  };
+  const byId = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot]));
+  const order = managed ? manage : [...byId.keys()];
+  const skelMeter = '<div class="quota-meter">' +
+      '<div class="quota-meter-labelwrap"><span class="quota-skel quota-skel-label"></span><span class="quota-skel quota-skel-value"></span></div>' +
+      '<div class="quota-bars"><div class="quota-track"><span class="quota-skel quota-skel-bar"></span></div></div>' +
+      '<span class="quota-skel quota-skel-reset"></span></div>';
+  const cards = order.slice()
+    .sort((a, b) => (names[a] || a).localeCompare(names[b] || b))
+    .map((id) => {
+      const snapshot = byId.get(id);
+      if (snapshot) return renderCard(snapshot);
+      // Enabled but never fetched: keep the card frame (skeleton meters) so
+      // the grid stays stable and the data simply fills in on the next sync.
+      const label = names[id] || id;
+      return '<article class="quota-card" aria-busy="true" data-tip="' +
+        esc(label + ' 已啟用 · 等待下次同步更新') + '"><div class="quota-head">' + iconFor(id, label) +
+        '<span class="quota-name">' + esc(label) + '</span></div>' +
+        '<div class="quota-meters">' + skelMeter + skelMeter + '</div></article>';
     }).join('');
   return '<section class="panel quota-panel"><div class="ph"><h2>訂閱配額</h2>' +
-    '<span class="quota-mode">' +
+    '<div class="quota-actions"><span class="quota-mode">' +
     '<button data-qmode="used"' + (mode === 'used' ? ' class="active"' : '') + '>已用</button>' +
     '<button data-qmode="remaining"' + (mode === 'remaining' ? ' class="active"' : '') + '>剩餘</button>' +
     '</span>' +
-    '</div><div class="quota-grid">' + cards + '</div></section>';
+    (Array.isArray(manage)
+      ? '<span class="quota-manage"><button id="quotaManage">管理</button>' +
+        '<div class="menu" id="quotaMenu" hidden>' +
+        Object.keys(names).map((id) => {
+          const on = manage.includes(id);
+          return '<button data-quota-product="' + id + '">' + (on ? '✓ ' : '') + esc(names[id]) + '</button>';
+        }).join('') +
+        '</div></span>'
+      : '') +
+    '</div></div><div class="quota-grid">' + cards + '</div>' +
+    (managed && !cards ? '<div class="quota-hint">所有訂閱配額顯示已關閉 — 在「管理」開啟</div>' : '') +
+    '</section>';
 }
 
 function computeTotal(b) {
@@ -1253,6 +1317,10 @@ function closeExportMenu() {
 }
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.panel-h')) closeExportMenu();
+  if (!e.target.closest('.quota-manage')) {
+    const quotaMenu = document.getElementById('quotaMenu');
+    if (quotaMenu) quotaMenu.hidden = true;
+  }
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeExportMenu();
@@ -1314,6 +1382,28 @@ document.getElementById('app').addEventListener('click', (e) => {
     quotaMode = qmode.dataset.qmode === 'used' ? 'used' : 'remaining';
     try { localStorage.setItem('vibe-quota-mode', quotaMode); } catch { /* private mode */ }
     render();
+    return;
+  }
+  if (e.target.closest('#quotaManage')) {
+    const menu = document.getElementById('quotaMenu');
+    if (menu) menu.hidden = !menu.hidden;
+    return;
+  }
+  const quotaProduct = e.target.closest('[data-quota-product]');
+  if (quotaProduct) {
+    const id = quotaProduct.dataset.quotaProduct;
+    const current = (data.quotaSync && data.quotaSync.products) || [];
+    const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
+    fetch('/api/usage/quota-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEY },
+      body: JSON.stringify({ products: next }),
+    }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((json) => {
+        data.quotaSync = { products: json.products || [] };
+        renderIfChanged();
+      })
+      .catch(() => { $('#app').innerHTML = '<div class="empty">配額管理失敗 — 確認 apiUrl 指向此 server（需 loopback）</div>'; });
     return;
   }
 });

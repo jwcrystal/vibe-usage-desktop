@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { gunzipSync } from 'node:zlib';
 import { URL } from 'node:url';
-import { existsSync, readFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, renameSync, chmodSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
@@ -20,12 +20,64 @@ export function supportsQuotaSnapshots(host = HOST) {
 }
 
 const SYNCABLE_QUOTA_IDS = new Set(['codex', 'commandcode', 'claude-code', 'opencode-go']);
-const QUOTA_EMPTY_REASONS = new Set(['limitReached', 'noWindow', 'notEntitled', 'sessionWithoutPlanLimits']);
+const QUOTA_EMPTY_REASONS = new Set(['limitReached', 'noWindow', 'notEntitled', 'sessionWithoutPlanLimits', 'notDetected', 'unauthorized']);
 
 function validDate(value) {
   if (typeof value !== 'string' || value.length > 64) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+// --- quota sync opt-in (the dashboard writes what the CLI reads) -----------
+
+function readRawConfig() {
+  try {
+    const parsed = JSON.parse(readFileSync(CONFIG_FILE, 'utf-8'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function readQuotaSyncConfig() {
+  const products = readRawConfig().quotaSyncProducts;
+  return Array.isArray(products)
+    ? products.filter((id) => typeof id === 'string' && SYNCABLE_QUOTA_IDS.has(id))
+    : [];
+}
+
+// The CLI binds its opt-in to the normalized apiUrl it syncs against; the
+// dashboard writes that same binding so the next sync picks the change up.
+function normalizeApiTarget(value) {
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+    return url.href.replace(/\/+$/, '');
+  } catch {
+    return null;
+  }
+}
+
+function isLoopbackTarget(value) {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    return LOOPBACK_HOSTS.has(hostname);
+  } catch {
+    return false;
+  }
+}
+
+function writeQuotaSyncConfig(products, apiTarget) {
+  const cfg = readRawConfig();
+  cfg.quotaSyncProducts = products;
+  cfg.quotaSyncApiUrl = apiTarget;
+  mkdirSync(dirname(CONFIG_FILE), { recursive: true });
+  const tmp = `${CONFIG_FILE}.tmp`;
+  // The file carries the API key: owner-only, matching the CLI's writer.
+  writeFileSync(tmp, JSON.stringify(cfg, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
+  renameSync(tmp, CONFIG_FILE);
+  try { chmodSync(CONFIG_FILE, 0o600); } catch { /* Windows mode models vary */ }
+  return cfg.quotaSyncProducts;
 }
 
 function sanitizeQuotaSnapshot(raw) {
@@ -106,14 +158,13 @@ function sanitizeQuotaSnapshots(raw) {
 //   1. VIBE_USAGE_SERVER_KEY env (explicit)
 //   2. ~/.vibe-usage/config.json apiKey (shared with the CLI)
 //   3. none -> permissive: accept any "vbu_" prefixed key (simple local use)
+const CONFIG_FILE = join(process.env.VIBE_USAGE_CONFIG_DIR?.trim() || join(homedir(), '.vibe-usage'), 'config.json');
+
 function resolveExpectedKey() {
   if (process.env.VIBE_USAGE_SERVER_KEY) return process.env.VIBE_USAGE_SERVER_KEY;
-  const configFile = join(process.env.VIBE_USAGE_CONFIG_DIR?.trim() || join(homedir(), '.vibe-usage'), 'config.json');
   try {
-    if (existsSync(configFile)) {
-      const cfg = JSON.parse(readFileSync(configFile, 'utf-8'));
-      if (cfg?.apiKey) return cfg.apiKey;
-    }
+    const cfg = JSON.parse(readFileSync(CONFIG_FILE, 'utf-8'));
+    if (cfg?.apiKey) return cfg.apiKey;
   } catch { /* fall through */ }
   return null;
 }
@@ -303,14 +354,43 @@ const router = {
       quotas: data.quotas || [],
       hasAnyData: data.buckets.length > 0,
       unpricedModels,
+      quotaSync: supportsQuotaSnapshots() ? { products: readQuotaSyncConfig() } : null,
     });
   },
 
   'GET /api/usage/settings'(req, res) {
     if (!authorize(req)) return sendJson(res, 401, { error: 'UNAUTHORIZED' });
     // Fully local: always upload project names (no privacy concern sending to
-    // your own machine).
-    sendJson(res, 200, { uploadProject: true, quotaSnapshots: supportsQuotaSnapshots() });
+    // your own machine). Quota-sync opt-in only exists on loopback, mirroring
+    // the snapshot capability.
+    sendJson(res, 200, {
+      uploadProject: true,
+      quotaSnapshots: supportsQuotaSnapshots(),
+      quotaSyncProducts: supportsQuotaSnapshots() ? readQuotaSyncConfig() : [],
+    });
+  },
+
+  async 'POST /api/usage/quota-sync'(req, res) {
+    if (!authorize(req)) return sendJson(res, 401, { error: 'UNAUTHORIZED' });
+    if (!supportsQuotaSnapshots()) return sendJson(res, 403, { error: 'quota_sync_requires_loopback' });
+    let payload;
+    try {
+      payload = JSON.parse((await parseBody(req)).toString('utf-8'));
+    } catch {
+      return sendJson(res, 400, { error: 'invalid_json' });
+    }
+    const requested = Array.isArray(payload?.products) ? payload.products : null;
+    if (!requested || requested.some((id) => !SYNCABLE_QUOTA_IDS.has(id))) {
+      return sendJson(res, 400, { error: 'invalid_products' });
+    }
+    // The CLI gates quota sync on its configured apiUrl pointing at this
+    // loopback server; managing from the UI would be a silent no-op
+    // otherwise, so refuse with a distinguishable error instead.
+    const target = normalizeApiTarget(readRawConfig().apiUrl || 'https://vibecafe.ai');
+    if (!target || !isLoopbackTarget(target)) {
+      return sendJson(res, 409, { error: 'api_url_not_loopback' });
+    }
+    sendJson(res, 200, { products: writeQuotaSyncConfig([...new Set(requested)], target) });
   },
 
   'DELETE /api/usage/ingest'(req, res) {
