@@ -1166,7 +1166,9 @@ function exportCsv() {
   const rows = sortedRecords(currentBuckets());
   if (!rows.length) return;
   const cols = [
-    ['date', (b) => isoLocal(b.bucketStart)],
+    // WYSIWYG with the table: actual last model-call time when the row has
+    // it, bucketStart (the half-hour anchor) for rows that predate the field.
+    ['date', (b) => isoLocal(b.lastCallAt || b.bucketStart)],
     ['source', (b) => b.source || ''],
     ['project', (b) => b.project || ''],
     ['model', (b) => b.model || ''],
