@@ -1069,7 +1069,10 @@ const REC_COLS = [
 function recValue(b, key) {
   switch (key) {
     case 'cost': return b.estimatedCost == null ? null : b.estimatedCost;
-    case 'bucketStart': return new Date(b.bucketStart).getTime();
+    // Sort by the displayed time (actual last call), not the bucket anchor —
+    // same-bucket rows share bucketStart, and insertion order would otherwise
+    // contradict the ↓ arrow when their call times differ.
+    case 'bucketStart': return new Date(b.lastCallAt || b.bucketStart).getTime();
     default: return b[key] ?? 0;
   }
 }
