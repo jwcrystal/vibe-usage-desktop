@@ -77,12 +77,75 @@ function createTray() {
   tray.on('click', () => { if (!win) createWindow(); win.show(); win.focus(); });
 }
 
+// Quota sync opt-in lives in the shared ~/.vibe-usage/config.json — the same
+// fields the web dashboard's 管理 menu writes and the CLI reads. The tray
+// mirrors those toggles natively; changes take effect on the daemon's next
+// sync cycle. The server endpoint is the single writer path (validation plus
+// the quotaSyncApiUrl binding), exactly like the web menu.
+const QUOTA_PRODUCTS = [
+  { id: 'codex', label: 'Codex' },
+  { id: 'commandcode', label: 'CommandCode' },
+  { id: 'claude-code', label: 'Claude Code' },
+  { id: 'opencode-go', label: 'OpenCode Go' },
+];
+
+function readConfigValue(key) {
+  try {
+    const dir = process.env.VIBE_USAGE_CONFIG_DIR?.trim() || join(homedir(), '.vibe-usage');
+    return JSON.parse(readFileSync(join(dir, 'config.json'), 'utf-8'))?.[key];
+  } catch {
+    return undefined;
+  }
+}
+
+function quotaSyncEnabled() {
+  const ids = readConfigValue('quotaSyncProducts');
+  return Array.isArray(ids) ? ids.filter((id) => QUOTA_PRODUCTS.some((p) => p.id === id)) : [];
+}
+
+let quotaToggling = null;
+function toggleQuotaProduct(id, on) {
+  if (quotaToggling) return quotaToggling;
+  quotaToggling = (async () => {
+    const current = quotaSyncEnabled();
+    const next = on ? [...new Set([...current, id])] : current.filter((x) => x !== id);
+    try {
+      const key = readConfigValue('apiKey');
+      const res = await fetch(`http://${HOST}:${PORT}/api/usage/quota-sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(key ? { Authorization: `Bearer ${key}` } : {}) },
+        body: JSON.stringify({ products: next }),
+      });
+      if (!res.ok) {
+        const why = res.status === 409 ? 'apiUrl must point at this machine (loopback)' : `HTTP ${res.status}`;
+        dialog.showErrorBox('Quota sync', `Could not update quota products: ${why}`);
+      }
+    } catch (err) {
+      dialog.showErrorBox('Quota sync', `Could not reach the local server: ${err.message}`);
+    } finally {
+      refreshTrayMenu();
+    }
+  })();
+  const done = quotaToggling.finally(() => { quotaToggling = null; });
+  quotaToggling = done;
+  return done;
+}
+
 function refreshTrayMenu() {
+  const enabled = quotaSyncEnabled();
   tray.setContextMenu(Menu.buildFromTemplate([
     {
       label: 'Open Dashboard',
       click: () => { if (!win) createWindow(); win.show(); win.focus(); },
     },
+    { type: 'separator' },
+    { label: 'Quota Sync (applies on next daemon run)', enabled: false },
+    ...QUOTA_PRODUCTS.map((product) => ({
+      label: product.label,
+      type: 'checkbox',
+      checked: enabled.includes(product.id),
+      click: (mi) => toggleQuotaProduct(product.id, mi.checked),
+    })),
     { type: 'separator' },
     {
       label: 'Launch at Login',
