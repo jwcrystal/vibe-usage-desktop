@@ -5,6 +5,8 @@ directories:
 files:
   - main.js
   - preload.cjs
+  - codex-oauth.js
+  - apikey-login.js
   - server/**/*
   - cli/**/*
   - build/icon.png
