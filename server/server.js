@@ -6,6 +6,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { loadData, saveData, ingestBuckets, upsertQuotaSnapshots, getDataPath, hash } from './store.js';
+import { logEvent } from './log.js';
 import { estimateCost } from './prices.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -175,11 +176,16 @@ function authorize(req) {
   const auth = req.headers.authorization || '';
   const m = /^Bearer\s+(.+)$/i.exec(auth);
   const supplied = m ? m[1].trim() : '';
-  if (EXPECTED_KEY) {
-    return supplied === EXPECTED_KEY;
+  const ok = EXPECTED_KEY ? supplied === EXPECTED_KEY : supplied.startsWith('vbu_');
+  if (!ok) {
+    // The supplied key itself is deliberately absent — only the shape of the
+    // request is recorded, so a bad key leaves a trace but no secret.
+    logEvent('auth', '401', {
+      req: `${req.method} ${req.url}`.slice(0, 80),
+      ua: (req.headers['user-agent'] || '').slice(0, 40),
+    });
   }
-  // Permissive mode: require a plausible vbu_-style key.
-  return supplied.startsWith('vbu_');
+  return ok;
 }
 
 function parseBody(req) {
@@ -324,6 +330,12 @@ const router = {
         && !/[\u0000-\u001f\u007f]/.test(hostname)) {
         const snapshots = sanitizeQuotaSnapshots(payload.quotas);
         quotas = upsertQuotaSnapshots(data, hostname.trim(), snapshots);
+        logEvent('ingest', null, {
+          hostname: hostname.trim(),
+          quotas: snapshots.map((s) => s.id + ':' + s.status + (s.emptyReason ? '/' + s.emptyReason : '')).join(',') || 'none',
+          accepted: quotas.accepted,
+          unchanged: quotas.unchanged,
+        });
       }
     }
     saveData(data);
@@ -394,7 +406,9 @@ const router = {
     if (!target || !isLoopbackTarget(target)) {
       return sendJson(res, 409, { error: 'api_url_not_loopback' });
     }
-    sendJson(res, 200, { products: writeQuotaSyncConfig([...new Set(requested)], target) });
+    const products = writeQuotaSyncConfig([...new Set(requested)], target);
+    logEvent('sync', 'quota-sync', { products: products.join(',') || 'none' });
+    sendJson(res, 200, { products });
   },
 
   'DELETE /api/usage/ingest'(req, res) {
