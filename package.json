@@ -1,6 +1,6 @@
 {
   "name": "vibe-usage-desktop",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Cross-platform desktop shell for vibe-usage-local-server: Electron tray + embedded local API/dashboard (macOS / Windows / Linux).",
   "license": "MIT",
   "type": "module",
