@@ -127,6 +127,22 @@
   .quota-meter-value.warn { color: #fbbf24; }
   .quota-meter-value.full { color: #f87171; }
   .quota-empty { color: var(--text3); font-size: 11px; padding: 18px 2px; }
+  .quota-empty-actions { display: flex; gap: 8px; margin-top: 12px; }
+  .quota-login-btn { background: transparent; color: var(--text2); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 14px; cursor: pointer; font-size: 11px; }
+  .quota-login-btn:hover { border-color: var(--text3); color: var(--text); }
+  .quota-login-btn:disabled { opacity: .5; cursor: default; }
+  .key-modal { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.55); }
+  .key-card { background: #1b1b1b; border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px; width: min(420px, 90vw); display: grid; gap: 10px; }
+  .key-card h3 { margin: 0; font-size: 14px; }
+  .key-card p { margin: 0; font-size: 11px; color: var(--text3); line-height: 1.6; }
+  .key-card a { color: var(--text2); }
+  .key-card input { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; color: var(--text); font-size: 12px; width: 100%; box-sizing: border-box; }
+  .key-card input:focus-visible { outline: 2px solid var(--text2); outline-offset: 1px; }
+  .key-row { display: flex; gap: 8px; justify-content: flex-end; }
+  .key-row button { background: transparent; border: 1px solid var(--border); color: var(--text2); border-radius: var(--radius); padding: 6px 14px; cursor: pointer; font-size: 12px; }
+  .key-row button:hover { border-color: var(--text3); color: var(--text); }
+  .key-row button.primary { border-color: var(--text3); color: var(--text); }
+  .key-row button:disabled { opacity: .5; cursor: default; }
   .quota-hint { color: var(--text3); font-size: 11px; padding: 0 14px 14px; }
   /* Skeleton state: an enabled-but-not-yet-fetched product keeps the card
      frame (and its row height) while waiting for the next sync. */
@@ -139,7 +155,7 @@
   .quota-skel-bar { display: block; width: 100%; height: 6px; }
   .quota-skel-reset { width: 110px; height: 9px; }
   .quota-stale { color: #fbbf24; }
-  .sync-toast { position: fixed; top: 12px; left: 50%; transform: translate(-50%, -6px); z-index: 1100; background: #222; border: 1px solid #454545; border-radius: var(--radius-lg); padding: 6px 12px; font-size: 11px; color: var(--text2); opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; max-width: 80%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sync-toast { position: fixed; top: 12px; left: 50%; transform: translate(-50%, -6px); z-index: 1300; background: #222; border: 1px solid #454545; border-radius: var(--radius-lg); padding: 6px 12px; font-size: 11px; color: var(--text2); opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; max-width: 80%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sync-toast.show { opacity: 1; transform: translate(-50%, 0); }
   .sync-toast.bad { color: #f87171; border-color: #7a3333; }
   /* records panel header row: title + export dropdown */
@@ -616,6 +632,22 @@ function render() {
     recordsPanel(buckets);
 }
 
+// Per-product login entry points (pi-style guided login). The commands are
+// the official tools' own login commands — each runs its browser OAuth itself
+// and writes the credential file our quota providers read. url is the
+// install/signup page for machines where the binary is missing. Top-level on
+// purpose: both quotaPanel (render) and the click handler use it.
+const loginActions = {
+  // Capability flags pick the click path in Electron, falling back to the
+  // guided cmd/url in any browser: oauth → in-app OAuth (pi-ai), key →
+  // paste-an-API-key dialog. url stays the guided fallback for missing
+  // binaries; name/keyUrl feed the key dialog.
+  codex: { name: 'Codex', cmd: 'codex login', url: 'https://github.com/openai/codex', oauth: true },
+  'claude-code': { name: 'Claude Code', cmd: 'claude', hint: '已開啟 claude — 輸入 /login 登入', url: 'https://docs.anthropic.com/en/docs/claude-code/overview' },
+  commandcode: { name: 'CommandCode', cmd: 'cmd login', url: 'https://commandcode.ai', key: true, keyUrl: 'https://commandcode.ai' },
+  'opencode-go': { name: 'OpenCode Go', cmd: 'opencode auth login', url: 'https://opencode.ai/docs', key: true, keyUrl: 'https://opencode.ai/zen' },
+};
+
 function quotaPanel(snapshots, mode, manage) {
   // With the manage list present, card presence follows the opt-in switch:
   // enabled products are permanent residents (placeholder until their first
@@ -735,8 +767,21 @@ function quotaPanel(snapshots, mode, manage) {
         ? '<span class="quota-amount">餘額 ' + esc(money2(snapshot.creditBalance)) + '</span>'
         : '';
       const noData = snapshot.status === 'no_data' || !meters;
+      // Login CTA: a single action button. Desktop runs the official login
+      // (in-app OAuth where supported, Terminal otherwise); when the binary
+      // is missing the same action falls back to opening the product site.
+      // A plain browser copies the command instead.
+      const loginAct = loginActions[snapshot.id];
+      const showLogin = noData && loginAct && (snapshot.emptyReason === 'notDetected' || snapshot.emptyReason === 'unauthorized');
+      const loginHtml = showLogin
+        ? '<div class="quota-empty-actions">' +
+          '<button type="button" class="quota-login-btn" data-quota-login="' + esc(snapshot.id) + '" data-tip="' +
+          esc(loginAct.oauth ? '在 App 內完成 OpenAI 登入（瀏覽器授權）' : loginAct.key ? '貼上 API key 完成 App 內登入' : '在終端機執行 ' + loginAct.cmd) + '">' +
+          (loginAct.oauth || loginAct.key ? '登入' : 'CLI 登入') + '</button>' +
+          '</div>'
+        : '';
       const body = noData
-        ? '<div class="quota-empty">' + esc(reasons[snapshot.emptyReason] || '尚未讀取到配額資料') + '</div>'
+        ? '<div class="quota-empty">' + esc(reasons[snapshot.emptyReason] || '尚未讀取到配額資料') + loginHtml + '</div>'
         : '<div class="quota-meters">' + meters + '</div>';
       tip.push('讀取於 ' + fmtLocalDT(snapshot.fetchedAt) + (snapshot.source ? ' · ' + snapshot.source : ''));
       const creditTip = chipTip(snapshot);
@@ -791,7 +836,7 @@ function quotaPanel(snapshots, mode, manage) {
           // the hints only point there.
           const setup = {
             codex: '登入：終端執行 codex login',
-            commandcode: '登入：CommandCode CLI',
+            commandcode: '登入：終端執行 cmd login',
             'claude-code': '需安裝 Claude Code 並以訂閱帳號登入',
             'opencode-go': '需安裝 OpenCode 並登入',
           }[id] || '';
@@ -1508,6 +1553,61 @@ document.getElementById('app').addEventListener('click', (e) => {
     if (menu) menu.hidden = !menu.hidden;
     return;
   }
+  const quotaLoginBtn = e.target.closest('[data-quota-login]');
+  if (quotaLoginBtn) {
+    const id = quotaLoginBtn.dataset.quotaLogin;
+    const act = loginActions[id];
+    if (window.vibeDesktop && window.vibeDesktop.quotaLogin) {
+      quotaLoginBtn.disabled = true;
+      const guided = () => window.vibeDesktop.quotaLogin(id)
+        .then((res) => {
+          if (res && res.action === 'url') showSyncNote('未偵測到安裝 — 已開啟官方網站', false);
+          else if (res && res.action === 'terminal') showSyncNote(res.hint || '已開啟終端機', false);
+          else showSyncNote('此產品尚未支援一鍵登入', true);
+        })
+        .catch(() => showSyncNote('無法開啟終端機', true));
+      if (act && act.oauth && window.vibeDesktop.quotaOAuthLogin) {
+        // In-app OAuth first (codex / pi-ai); guided Terminal is the fallback.
+        showSyncNote('已開啟瀏覽器 — 完成 OpenAI 授權…', false);
+        window.vibeDesktop.quotaOAuthLogin(id)
+          .then((res) => {
+            if (res && res.ok) {
+              showSyncNote('已登入 — 同步中…', false);
+              refreshNow();
+            } else {
+              showSyncNote('App 內登入未完成 — 改用終端機引導', true);
+              return guided();
+            }
+          })
+          .catch(() => guided())
+          .finally(() => { quotaLoginBtn.disabled = false; });
+      } else if (act && act.key && window.vibeDesktop.quotaKeyLogin) {
+        // API-key products: dialog takes over; the card button is free again.
+        quotaLoginBtn.disabled = false;
+        openKeyModal(id, act);
+      } else {
+        guided().finally(() => { quotaLoginBtn.disabled = false; });
+      }
+    } else {
+      // Web host (plain browser, no vibeDesktop bridge): copy the command.
+      // pi-style contract — every path notifies, failures included.
+      try {
+        const cmd = act ? act.cmd : '';
+        if (!cmd) { showSyncNote('此產品尚未支援一鍵登入', true); return; }
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(cmd).then(
+            () => showSyncNote('已複製：' + cmd + ' — 在終端機執行', false),
+            () => showSyncNote('請在終端機執行：' + cmd, false),
+          );
+        } else {
+          showSyncNote('請在終端機執行：' + cmd, false);
+        }
+      } catch {
+        showSyncNote('登入引導失敗 — 請手動在終端機登入該工具', true);
+      }
+    }
+    return;
+  }
   const quotaProduct = e.target.closest('[data-quota-product]');
   if (quotaProduct) {
     const id = quotaProduct.dataset.quotaProduct;
@@ -1604,6 +1704,64 @@ function showSyncNote(text, bad) {
   syncToastEl.classList.add('show');
   clearTimeout(showSyncNote._t);
   showSyncNote._t = setTimeout(() => syncToastEl.classList.remove('show'), 3000);
+}
+
+// API-key login dialog (Command Code / OpenCode Go): paste a key created on
+// the product's site; the Electron main process validates it against the
+// official endpoint, persists it in the official credential file, then
+// syncs. Any failure keeps the dialog open with a toast — nothing is
+// written for an invalid key.
+function openKeyModal(id, act) {
+  const overlay = document.createElement('div');
+  overlay.className = 'key-modal';
+  overlay.innerHTML =
+    '<div class="key-card" role="dialog" aria-modal="true">' +
+    '<h3>' + esc((act.name || id) + ' · API key 登入') + '</h3>' +
+    '<p>先在官方網站建立 API key 再貼上：<a href="' + esc(act.keyUrl || '') + '" target="_blank" rel="noopener">' + esc(act.keyUrl || '') + '</a><br>key 只寫入本機官方憑證檔，不會上傳。</p>' +
+    '<input type="password" placeholder="API key" autocomplete="off" spellcheck="false">' +
+    '<div class="key-row"><button type="button" data-a="cancel">取消</button>' +
+    '<button type="button" data-a="ok" class="primary">登入</button></div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  const input = overlay.querySelector('input');
+  const okBtn = overlay.querySelector('[data-a="ok"]');
+  input.focus();
+  const close = () => overlay.remove();
+  const submit = async () => {
+    const key = input.value.trim();
+    if (!key) { input.focus(); return; }
+    okBtn.disabled = true;
+    showSyncNote('驗證 key 中…', false);
+    try {
+      const res = await window.vibeDesktop.quotaKeyLogin(id, key);
+      if (res && res.ok) {
+        showSyncNote('已登入 — 同步中…', false);
+        close();
+        refreshNow();
+      } else if (res && res.error === 'invalid_key') {
+        showSyncNote('key 無效 — 官方端拒絕', true);
+        okBtn.disabled = false;
+        input.select();
+      } else {
+        showSyncNote('登入失敗：' + esc((res && res.error) || '未知錯誤'), true);
+        okBtn.disabled = false;
+      }
+    } catch {
+      showSyncNote('登入失敗 — 網路或伺服器錯誤', true);
+      okBtn.disabled = false;
+    }
+  };
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) return close();
+    const action = e.target.closest('button');
+    if (!action) return;
+    if (action.dataset.a === 'cancel') close();
+    if (action.dataset.a === 'ok') submit();
+  });
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submit();
+    if (e.key === 'Escape') close();
+  });
 }
 
 async function refreshNow() {

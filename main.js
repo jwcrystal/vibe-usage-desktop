@@ -1,10 +1,18 @@
-import { app, BrowserWindow, Tray, Menu, dialog, nativeImage, ipcMain } from 'electron';
+import { app, BrowserWindow, Tray, Menu, dialog, nativeImage, ipcMain, shell } from 'electron';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, mkdirSync, writeFileSync, chmodSync, watch } from 'node:fs';
-import { join, dirname, sep } from 'node:path';
+import { accessSync, constants, existsSync, readFileSync, mkdirSync, writeFileSync, chmodSync, watch, readdirSync } from 'node:fs';
+import { join, dirname, sep, delimiter } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { loginCodex, refreshIfExpiring } from './codex-oauth.js';
+import { loginCommandcode, loginOpencodeGo } from './apikey-login.js';
+import { configureLogFile, logEvent } from './server/log.js';
+
+// Packaged-app stdout is lost (Finder/Dock launch) — tee events to a
+// size-capped file next to the other vibe-usage logs. npm start still sees
+// everything live in the terminal.
+configureLogFile(join(homedir(), '.vibe-usage', 'logs', 'desktop.log'));
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || process.env.VIBE_USAGE_PORT || 3456);
@@ -325,6 +333,14 @@ let syncing = null;
 ipcMain.handle('vibe-sync', () => {
   if (syncing) return syncing;
   syncing = (async () => {
+    // Machines without the official codex CLI have nobody to refresh the
+    // OAuth token we wrote — top it up (cheap no-op while fresh) so the
+    // sync never reads an expired ~/.codex/auth.json.
+    try {
+      await refreshIfExpiring({ log: (m) => logEvent('codex-oauth', m) });
+    } catch (err) {
+      logEvent('codex-oauth', 'refresh skipped: ' + ((err && err.message) || err));
+    }
     const cli = await findDaemonCli();
     if (!cli) return { ok: false, out: 'vibe-usage CLI not found' };
     const res = await run(cli.cmd, [...cli.pre, 'sync'], cli.env);
@@ -333,6 +349,115 @@ ipcMain.handle('vibe-sync', () => {
   const done = syncing.finally(() => { syncing = null; });
   syncing = done;
   return done;
+});
+
+// Quota card 登入/安裝 buttons: per-product official login. The binary is
+// checked at click time — present, Terminal.app runs the tool's own login
+// command (each official login opens its browser OAuth itself and writes the
+// credential file the quota providers read); missing, the product site opens
+// instead. Ids are allowlisted and commands are static constants, never built
+// from renderer input.
+const QUOTA_LOGIN = {
+  codex: { bin: ['codex'], cmd: 'codex login', url: 'https://github.com/openai/codex' },
+  'claude-code': { bin: ['claude'], cmd: 'claude', hint: '已開啟 claude — 輸入 /login 登入', url: 'https://docs.anthropic.com/en/docs/claude-code/overview' },
+  commandcode: { bin: ['command-code', 'cmd'], cmd: 'cmd login', url: 'https://commandcode.ai' },
+  'opencode-go': { bin: ['opencode'], cmd: 'opencode auth login', url: 'https://opencode.ai/docs' },
+};
+
+function firstBinOnPath(names) {
+  const home = homedir();
+  const dirs = new Set((process.env.PATH || '').split(delimiter).filter(Boolean));
+  // GUI (Finder/Dock) launches get a minimal PATH without the package
+  // managers and per-product bins where these CLIs actually live — scan the
+  // known locations explicitly instead of trusting the inherited PATH.
+  for (const dir of [
+    '/opt/homebrew/bin', '/usr/local/bin',
+    join(home, '.local', 'bin'), join(home, '.npm-global', 'bin'),
+    join(home, '.opencode', 'bin'),
+  ]) dirs.add(dir);
+  try {
+    for (const version of readdirSync(join(home, '.nvm', 'versions', 'node'))) {
+      dirs.add(join(home, '.nvm', 'versions', 'node', version, 'bin'));
+    }
+  } catch { /* nvm absent — fine */ }
+  for (const name of names) {
+    for (const dir of dirs) {
+      try {
+        accessSync(join(dir, name), constants.X_OK);
+        return name;
+      } catch { /* keep scanning */ }
+    }
+  }
+  return null;
+}
+
+ipcMain.handle('vibe-quota-login', (_event, productId) => {
+  const act = QUOTA_LOGIN[productId];
+  if (!act) return { action: 'none' };
+  const bin = firstBinOnPath(act.bin);
+  logEvent('quota-login', 'detected binary=' + (bin || 'none'), { product: productId });
+  if (!bin) {
+    shell.openExternal(act.url);
+    return { action: 'url' };
+  }
+  // Terminal.app runs the login; osascript failures fall back to the site.
+  const script = 'tell application "Terminal" to do script ' + JSON.stringify(act.cmd);
+  spawn('osascript', ['-e', script], { stdio: 'ignore' }).on('error', () => {
+    shell.openExternal(act.url);
+  });
+  return { action: 'terminal', hint: act.hint || ('已開啟終端機：' + act.cmd) };
+});
+
+ipcMain.handle('vibe-open-external', (_event, url) => {
+  if (typeof url === 'string' && /^https:\/\//.test(url)) shell.openExternal(url);
+  return { ok: true };
+});
+
+// In-app codex OAuth (Phase 1): pi-ai drives the browser flow, the credential
+// lands in ~/.codex/auth.json (official format), then a one-shot sync fills
+// the card immediately. Single-flight like vibe-sync. On failure the renderer
+// falls back to the guided path (Terminal / 官網), which reports its own toast.
+let oauthLogin = null;
+ipcMain.handle('vibe-quota-oauth-login', (_event, productId) => {
+  if (productId !== 'codex') return Promise.resolve({ ok: false, error: 'unsupported_product' });
+  if (oauthLogin) return oauthLogin;
+  oauthLogin = (async () => {
+    try {
+      await loginCodex({
+        openUrl: (url) => shell.openExternal(url),
+        log: (m) => logEvent('codex-oauth', m),
+      });
+      // Return the moment the credential lands — the renderer runs the sync
+      // (refreshNow), so the user sees 已登入 immediately instead of after
+      // a 30-60s CLI sync inside one silent IPC round-trip.
+      return { ok: true };
+    } catch (err) {
+      logEvent('codex-oauth', 'login failed: ' + ((err && err.message) || err));
+      return { ok: false, error: String((err && err.message) || err) };
+    }
+  })();
+  const done = oauthLogin.finally(() => { oauthLogin = null; });
+  oauthLogin = done;
+  return done;
+});
+
+// Phase 2: in-app API-key login (Command Code / OpenCode Go). The key is
+// validated against the official endpoint first — only a valid key is ever
+// persisted. Returns as soon as the credential is written; the renderer
+// kicks the usual sync (refreshNow) so feedback is immediate instead of
+// waiting out a ~30-60s CLI sync inside one IPC round-trip.
+ipcMain.handle('vibe-quota-key-login', async (_event, productId, key) => {
+  try {
+    const login = productId === 'commandcode' ? loginCommandcode
+      : productId === 'opencode-go' ? loginOpencodeGo : null;
+    if (!login) return { ok: false, error: 'unsupported_product' };
+    const res = await login(key);
+    logEvent('key-login', res.ok ? 'ok (credential written)' : 'failed: ' + res.error, { product: productId });
+    return res;
+  } catch (err) {
+    logEvent('key-login', 'error: ' + ((err && err.message) || err), { product: productId });
+    return { ok: false, error: String((err && err.message) || err) };
+  }
 });
 
 app.on('second-instance', () => {
