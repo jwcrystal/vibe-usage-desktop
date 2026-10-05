@@ -648,6 +648,16 @@ const loginActions = {
   'opencode-go': { name: 'OpenCode Go', cmd: 'opencode auth login', url: 'https://opencode.ai/docs', key: true, keyUrl: 'https://opencode.ai/zen' },
 };
 
+// Empty states a login action can actually fix. notEntitled means THIS
+// account has no subscription — another key/account might; ditto a login
+// method without plan limits (re-login with the subscription account). Only
+// noWindow and limitReached are genuinely not login's business.
+const LOGIN_REASONS = new Set(['notDetected', 'unauthorized', 'notEntitled', 'sessionWithoutPlanLimits']);
+const LOGIN_TIPS = {
+  notEntitled: '此帳號未訂閱 — 可換有訂閱的帳號/key 登入',
+  sessionWithoutPlanLimits: '目前登入方式沒有訂閱配額 — 用訂閱帳號重新登入',
+};
+
 function quotaPanel(snapshots, mode, manage) {
   // With the manage list present, card presence follows the opt-in switch:
   // enabled products are permanent residents (placeholder until their first
@@ -772,11 +782,13 @@ function quotaPanel(snapshots, mode, manage) {
       // is missing the same action falls back to opening the product site.
       // A plain browser copies the command instead.
       const loginAct = loginActions[snapshot.id];
-      const showLogin = noData && loginAct && (snapshot.emptyReason === 'notDetected' || snapshot.emptyReason === 'unauthorized');
+      const showLogin = noData && loginAct && LOGIN_REASONS.has(snapshot.emptyReason);
+      const loginTip = (LOGIN_TIPS[snapshot.emptyReason])
+        || (loginAct.oauth ? '在 App 內完成 OpenAI 登入（瀏覽器授權）' : loginAct.key ? '貼上 API key 完成 App 內登入' : '在終端機執行 ' + loginAct.cmd);
       const loginHtml = showLogin
         ? '<div class="quota-empty-actions">' +
           '<button type="button" class="quota-login-btn" data-quota-login="' + esc(snapshot.id) + '" data-tip="' +
-          esc(loginAct.oauth ? '在 App 內完成 OpenAI 登入（瀏覽器授權）' : loginAct.key ? '貼上 API key 完成 App 內登入' : '在終端機執行 ' + loginAct.cmd) + '">' +
+          esc(loginTip) + '">' +
           (loginAct.oauth || loginAct.key ? '登入' : 'CLI 登入') + '</button>' +
           '</div>'
         : '';
@@ -830,16 +842,10 @@ function quotaPanel(snapshots, mode, manage) {
         Object.keys(names).map((id) => {
           const on = manage.includes(id);
           const snap = byId.get(id);
-          // Two-line rows: toggle state, then where the product stands and
-          // how to configure it — the closest thing to a config page without
-          // building one. Logins always belong to each provider's own tool;
-          // the hints only point there.
-          const setup = {
-            codex: '登入：終端執行 codex login',
-            commandcode: '登入：終端執行 cmd login',
-            'claude-code': '需安裝 Claude Code 並以訂閱帳號登入',
-            'opencode-go': '需安裝 OpenCode 並登入',
-          }[id] || '';
+          // The manage list is a pure on/off switch with status. The login
+          // action lives on the quota cards (in-app OAuth / key dialog /
+          // guided Terminal) — no hand-written setup hints here to drift
+          // stale.
           const state = !on
             ? '未啟用'
             : !snap
@@ -849,7 +855,7 @@ function quotaPanel(snapshots, mode, manage) {
                 : (snap.emptyReason && reasons[snap.emptyReason]) || '暫無資料';
           return '<button data-quota-product="' + id + '">' +
             '<span class="quota-row-name">' + (on ? '✓ ' : '') + esc(names[id]) + '</span>' +
-            '<span class="quota-row-sub">' + esc(on ? state : state + ' · ' + setup) + '</span></button>';
+            '<span class="quota-row-sub">' + esc(state) + '</span></button>';
         }).join('') +
         '</div></span>'
       : '') +
