@@ -6,7 +6,9 @@ Cross-platform desktop shell (macOS / Windows / Linux) for
 [vibe-usage-local-server](https://github.com/jwcrystal/vibe-usage-local-server)
 — Electron app that embeds the zero-dependency local server and shows its dashboard.
 
-- Tray icon + menu: open dashboard, launch at login, quit
+- Tray icon + menu: open dashboard, launch at login, quit; on macOS the menu
+  bar shows the dashboard's selected-range cost and token totals as two
+  stacked lines (other platforms: same numbers in the tooltip)
 - Embedded server on `http://127.0.0.1:3456` (same data file
   `~/.vibe-usage-server/data.json`, same price table)
 - Closing the window keeps the app in the tray; quit via tray menu

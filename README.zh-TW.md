@@ -5,7 +5,8 @@
 [vibe-usage-local-server](https://github.com/jwcrystal/vibe-usage-local-server) 的
 跨平台桌面外殼（macOS / Windows / Linux）——Electron 應用，內嵌零依賴本地伺服器並顯示其 dashboard。
 
-- 系統匣圖示 + 選單：開啟 dashboard、登入自啟、結束
+- 系統匣圖示 + 選單：開啟 dashboard、登入自啟、結束；macOS 選單列以雙行顯示
+  dashboard 所選區間的費用與 Token 總計（其他平台：同樣數字顯示在 tooltip）
 - 內嵌伺服器跑在 `http://127.0.0.1:3456`（同一資料檔
   `~/.vibe-usage-server/data.json`、同一張價格表）
 - 關閉視窗後應用留在系統匣；要結束請由匣選單

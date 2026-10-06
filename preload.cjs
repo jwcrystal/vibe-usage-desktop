@@ -6,6 +6,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 // 登入 button copies the login command instead of opening a terminal.
 contextBridge.exposeInMainWorld('vibeDesktop', {
   syncNow: () => ipcRenderer.invoke('vibe-sync'),
+  setRange: (range) => ipcRenderer.send('vibe-tray-range', range),
   quotaLogin: (productId) => ipcRenderer.invoke('vibe-quota-login', String(productId)),
   quotaOAuthLogin: (productId) => ipcRenderer.invoke('vibe-quota-oauth-login', String(productId)),
   quotaKeyLogin: (productId, key) => ipcRenderer.invoke('vibe-quota-key-login', String(productId), String(key)),

@@ -487,8 +487,9 @@ const server = http.createServer((req, res) => {
   });
 });
 
-// Tests may bind the server to an ephemeral port.
-export { server };
+// Tests may bind the server to an ephemeral port. filterBuckets is reused by
+// the desktop shell to aggregate the same buckets for the menu-bar tray title.
+export { server, filterBuckets };
 
 // Permissive auth (no configured key) accepts any vbu_-prefixed key. That is
 // only acceptable on a loopback interface — refuse to bind anything wider.

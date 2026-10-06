@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { loginCodex, refreshIfExpiring } from './codex-oauth.js';
 import { loginCommandcode, loginOpencodeGo } from './apikey-login.js';
 import { configureLogFile, logEvent } from './server/log.js';
+import { loadData } from './server/store.js';
+import { loadPrices, estimateCost } from './server/prices.js';
 
 // Packaged-app stdout is lost (Finder/Dock launch) — tee events to a
 // size-capped file next to the other vibe-usage logs. npm start still sees
@@ -27,6 +29,13 @@ if (!gotLock) {
 let win = null;
 let tray = null;
 let portInUse = false;
+// Menu-bar title mirrors the dashboard's selected range. The renderer pushes
+// the descriptor after every load ('vibe-tray-range'); the default matches the
+// dashboard's own default ("today").
+let trayRange = { kind: 'today' };
+// Set by startServer(); supplies filterBuckets so the tray aggregates with the
+// exact same window logic as GET /api/usage.
+let serverApi = null;
 
 async function startServer() {
   // Must run before importing server.js: the server resolves its expected
@@ -34,7 +43,9 @@ async function startServer() {
   // fresh install (no config) runs the server in permissive mode while the
   // dashboard gets an empty injected key -> every /api/usage call 401s.
   ensureLocalCliConfig();
-  const { server, start } = await import('./server/server.js');
+  const mod = await import('./server/server.js');
+  const { server, start } = mod;
+  serverApi = mod;
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
       portInUse = true;
@@ -82,9 +93,177 @@ function createTray() {
   tray = new Tray(icon);
   tray.setToolTip('Vibe Usage Desktop');
   refreshTrayMenu();
+  updateTrayTitle();
+  // Data keeps growing while the window is hidden (the daemon syncs), so
+  // refresh on a timer as well as on every renderer-reported range change.
+  setInterval(updateTrayTitle, 60000);
   watchQuotaConfig();
   tray.on('click', () => { if (!win) createWindow(); win.show(); win.focus(); });
 }
+
+// --- Menu-bar readout: cost + tokens for the dashboard's selected range ---
+// The renderer reports its range selection after every load; main aggregates
+// the shared data file with the server's own helpers (same window filter and
+// live pricing as GET /api/usage), so tray and dashboard KPIs never disagree.
+// macOS shows a two-line readout (cost over tokens next to a mark). An
+// NSStatusItem title is single-line, so the whole thing is drawn on a canvas
+// in a hidden window and pushed as a 2x image. It is drawn all-black and set
+// as a template image: AppKit then recolors it for the menu bar's actual
+// appearance — which matters because the bar can be tinted dark by the
+// wallpaper while the system reports light. Other platforms have no text
+// slot, so the numbers land in the tooltip.
+
+function sanitizeTrayRange(r) {
+  if (!r || typeof r !== 'object') return null;
+  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+  if (r.kind === 'today') return { kind: 'today' };
+  if (r.kind === 'hours') {
+    const h = num(r.h);
+    return h && h > 0 ? { kind: 'hours', h } : null;
+  }
+  if (r.kind === 'preset') {
+    const days = num(r.days);
+    return days && days > 0 ? { kind: 'preset', days } : null;
+  }
+  if (r.kind === 'custom') {
+    const from = num(r.from);
+    const to = num(r.to);
+    return from != null && to != null && from <= to ? { kind: 'custom', from, to } : null;
+  }
+  return null;
+}
+
+// Mirrors the dashboard's computeRange() (server/ui/dashboard.html). Presets
+// go over as days= so both sides anchor the rolling window at request time.
+function trayQueryParams() {
+  const now = Date.now();
+  const iso = (ms) => new Date(ms).toISOString();
+  if (trayRange.kind === 'hours') return { from: iso(now - trayRange.h * 3600000), to: iso(now) };
+  if (trayRange.kind === 'preset') return { days: String(trayRange.days) };
+  if (trayRange.kind === 'custom') return { from: iso(trayRange.from), to: iso(trayRange.to) };
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  return { from: iso(midnight.getTime()), to: iso(now) };
+}
+
+// Formatting copies the dashboard's money()/fmtTok() so both surfaces show the
+// same string — keep in sync when those change.
+const trayMoney = (v) => '$' + (v >= 1 ? v.toFixed(2) : v.toFixed(4));
+const trayFmtTok = (n) => {
+  n = n || 0;
+  const units = ['', 'K', 'M', 'B', 'T'];
+  let i = 0;
+  while (n >= 1000 && i < units.length - 1) { n /= 1000; i += 1; }
+  if (i > 0 && i < units.length - 1 && n >= 999.5) { n /= 1000; i += 1; }
+  return i === 0 ? String(n) : n.toFixed(i === 1 ? 0 : 1) + units[i];
+};
+
+// Renders the two-line readout (mark + cost over tokens) on a canvas and
+// returns a 2x PNG data URL. Lives in a hidden window: the main process has no
+// DOM, and a plain hidden page needs no paint/compositing for toDataURL.
+// Geometry was tuned against the reference menu-bar app: 18pt mark, 11/10
+// text at semibold, tight leading, block top-aligned with the mark.
+const TRAY_RENDER_PAGE = `<!doctype html><meta charset="utf-8"><body style="margin:0"><script>
+function renderTray(o) {
+  const family = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif';
+  const font = (weight, size) => weight + ' ' + size + 'px ' + family;
+  const probe = document.createElement('canvas').getContext('2d');
+  probe.font = font(700, 11);
+  const costW = probe.measureText(o.cost).width;
+  probe.font = font(600, 10);
+  const tokW = probe.measureText(o.tok).width;
+  const mark = 18;
+  const gap = 6;
+  const height = 20;
+  const width = Math.ceil(mark + gap + Math.max(costW, tokW)) + 0.5;
+  const canvas = document.createElement('canvas');
+  canvas.width = width * 2;
+  canvas.height = height * 2;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(2, 2);
+  ctx.fillStyle = '#000';
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(0.75, 2.25, 16.5, 16.5, 1.8);
+  ctx.stroke();
+  ctx.font = font(700, 11);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('U', 9, 10.9);
+  ctx.textAlign = 'left';
+  ctx.font = font(600, 10);
+  ctx.fillText(o.tok, mark + gap, 14.4);
+  ctx.font = font(700, 11);
+  ctx.fillText(o.cost, mark + gap, 5.5);
+  return canvas.toDataURL('image/png');
+}
+</script></body>`;
+
+let trayImageWin = null;
+let lastTrayKey = null;
+
+function trayImageWindow() {
+  if (trayImageWin && !trayImageWin.isDestroyed()) return trayImageWin;
+  trayImageWin = new BrowserWindow({
+    show: false,
+    width: 400,
+    height: 80,
+    webPreferences: { contextIsolation: true, sandbox: true },
+  });
+  trayImageWin.on('closed', () => { trayImageWin = null; });
+  trayImageWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(TRAY_RENDER_PAGE));
+  return trayImageWin;
+}
+
+async function renderTrayImage(money, tok) {
+  const page = trayImageWindow();
+  if (page.webContents.isLoading()) {
+    await new Promise((resolve) => page.webContents.once('did-finish-load', resolve));
+  }
+  return page.webContents.executeJavaScript(`renderTray(${JSON.stringify({ cost: money, tok })})`);
+}
+
+async function updateTrayTitle() {
+  if (!tray || !serverApi) return;
+  const prices = loadPrices();
+  const buckets = serverApi.filterBuckets(loadData().buckets, trayQueryParams());
+  let cost = 0;
+  let tokens = 0;
+  for (const b of buckets) {
+    const c = estimateCost(b, prices);
+    if (c != null) cost += c;
+    tokens += (b.inputTokens || 0) + (b.outputTokens || 0) + (b.reasoningOutputTokens || 0) + (b.cachedInputTokens || 0);
+  }
+  const money = trayMoney(cost);
+  const tok = trayFmtTok(tokens);
+  tray.setToolTip(`Vibe Usage Desktop — ${money} · ${tok}`);
+  if (process.platform !== 'darwin') return;
+  // Skip identical re-renders (the 60s tick usually changes nothing).
+  const key = `${money}|${tok}`;
+  if (key === lastTrayKey) return;
+  try {
+    const dataUrl = await renderTrayImage(money, tok);
+    const image = nativeImage.createEmpty();
+    image.addRepresentation({ scaleFactor: 2, dataURL: dataUrl });
+    image.setTemplateImage(true);
+    tray.setImage(image);
+    tray.setTitle('');
+    lastTrayKey = key;
+  } catch (err) {
+    // Never leave the tray blank: fall back to the single-line text title.
+    console.error('[tray] image render failed, using text title:', err.message);
+    tray.setTitle(`${money} · ${tok}`, { fontType: 'monospacedDigit' });
+    lastTrayKey = null;
+  }
+}
+
+ipcMain.on('vibe-tray-range', (_event, r) => {
+  const next = sanitizeTrayRange(r);
+  if (!next) return;
+  trayRange = next;
+  updateTrayTitle();
+});
 
 // Quota sync opt-in lives in the shared ~/.vibe-usage/config.json — the same
 // fields the web dashboard's 管理 menu writes and the CLI reads. The tray

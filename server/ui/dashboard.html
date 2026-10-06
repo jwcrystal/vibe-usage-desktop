@@ -450,6 +450,9 @@ async function load() {
   try {
   const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone);
   const { curMin, curMax, span } = computeRange();
+  // Desktop shell: mirror the selected range so the tray title can show the
+  // same window. Absent in a plain browser (bridge injected only by the app).
+  if (window.vibeDesktop && window.vibeDesktop.setRange) window.vibeDesktop.setRange(range);
   const mainParam = range.kind === 'preset'
     ? 'days=' + range.days
     : 'from=' + new Date(curMin).toISOString() + '&to=' + new Date(curMax).toISOString();
