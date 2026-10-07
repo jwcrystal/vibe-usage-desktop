@@ -1,14 +1,14 @@
 import { app, BrowserWindow, Tray, Menu, dialog, nativeImage, ipcMain, shell, screen } from 'electron';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { accessSync, constants, existsSync, readFileSync, mkdirSync, writeFileSync, chmodSync, watch, readdirSync } from 'node:fs';
+import { accessSync, constants, existsSync, readFileSync, mkdirSync, writeFileSync, chmodSync, watch, readdirSync, statSync } from 'node:fs';
 import { join, dirname, sep, delimiter } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { loginCodex, refreshIfExpiring } from './codex-oauth.js';
 import { loginCommandcode, loginOpencodeGo } from './apikey-login.js';
 import { configureLogFile, logEvent } from './server/log.js';
-import { loadData } from './server/store.js';
+import { loadData, getDataPath } from './server/store.js';
 import { loadPrices, estimateCost } from './server/prices.js';
 
 // Packaged-app stdout is lost (Finder/Dock launch) — tee events to a
@@ -77,6 +77,11 @@ function createWindow() {
   });
   win.loadURL(DASHBOARD_URL);
   win.once('ready-to-show', () => win.show());
+  // Dashboard starts from its local default; hand it the canonical range as
+  // soon as it can listen (it re-renders onto the broadcast).
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.send('vibe-range-changed', trayRange);
+  });
   win.on('close', (e) => {
     if (!app.isQuitting) {
       e.preventDefault();
@@ -249,9 +254,19 @@ function trayRangeLabel() {
 // bins is merged (step>1) so the chart stays readable; labels are sparse.
 // Color: bars use the dashboard's --accent.
 function trayRangeSeries(prices) {
-  const params = trayQueryParams();
-  const from = Date.parse(params.from);
-  const to = Date.parse(params.to);
+  // trayQueryParams() expresses preset ranges as a rolling days= window with
+  // no from/to — resolve the bounds here, or Date.parse(undefined) is NaN and
+  // the chart comes back empty for 7D/30D/90D.
+  let from;
+  let to;
+  if (trayRange.kind === 'preset') {
+    to = Date.now();
+    from = to - trayRange.days * 86400000;
+  } else {
+    const params = trayQueryParams();
+    from = Date.parse(params.from);
+    to = Date.parse(params.to);
+  }
   if (!Number.isFinite(from) || !Number.isFinite(to)) return [];
   const hourly = trayRange.kind === 'today' || trayRange.kind === 'hours';
   const unit = hourly ? 3600000 : 86400000;
@@ -275,20 +290,35 @@ function trayRangeSeries(prices) {
     const c = estimateCost(b, prices);
     if (c != null) totals[i] += c;
   }
-  const labelEvery = hourly ? 4 : Math.max(1, Math.ceil(count / 6));
-  return totals.map((v, i) => {
+  // No per-bar captions: the axis line under the chart carries just the two
+  // endpoints (impossible to collide), each bar's full label lives in its
+  // hover tooltip.
+  const md = (d) => (d.getMonth() + 1) + '/' + d.getDate();
+  const bins = totals.map((v, i) => {
     const d = new Date(start + i * binMs);
-    const label = i % labelEvery === 0
-      ? (hourly ? d.getHours() + '時' : (d.getMonth() + 1) + '/' + d.getDate())
-      : '';
-    return { label, v: Math.round(v * 100) / 100 };
+    return { v: Math.round(v * 100) / 100, t: hourly ? md(d) + ' ' + d.getHours() + '時' : md(d) };
   });
+  // Evenly spaced axis ticks, sized so labels can't collide (~6 slots apart
+  // max). Short labels under hourly (N時), full dates under daily bins.
+  const tickEvery = Math.max(1, Math.round(count / 6));
+  const tickIdx = [];
+  for (let i = 0; i < count; i += tickEvery) tickIdx.push(i);
+  const lastTick = tickIdx[tickIdx.length - 1];
+  if (lastTick !== count - 1) {
+    if (count - 1 - lastTick <= Math.ceil(tickEvery / 2)) tickIdx[tickIdx.length - 1] = count - 1;
+    else tickIdx.push(count - 1);
+  }
+  const shortLabel = (i) => (hourly ? bins[i].t.split(' ')[1] : bins[i].t);
+  return {
+    bins,
+    ticks: tickIdx.map((i) => ({ i, t: shortLabel(i) })),
+  };
 }
 
-// Per-model usage for the selected range, best-cost first, max 6 rows.
-// Token counting mirrors the tray title (all token classes); the formatting
-// reuses trayFmtTok/trayMoney so panel and tray strings agree. Trailing
-// -20yymmdd date suffixes are stripped from model names for display.
+// Per-model usage for the selected range, best-cost first: top 3 plus one
+// aggregated tail row. Token counting mirrors the tray title (all token
+// classes); formatting reuses trayFmtTok/trayMoney so panel and tray strings
+// agree. Trailing -20yymmdd date suffixes are stripped from model names.
 function trayModelBreakdown(buckets, prices) {
   const byModel = new Map();
   let total = 0;
@@ -306,15 +336,34 @@ function trayModelBreakdown(buckets, prices) {
     }
     e.tokens += (b.inputTokens || 0) + (b.outputTokens || 0) + (b.reasoningOutputTokens || 0) + (b.cachedInputTokens || 0);
   }
-  return [...byModel.entries()]
-    .sort((a, b) => (b[1].cost - a[1].cost) || (b[1].tokens - a[1].tokens))
-    .slice(0, 6)
-    .map(([model, e]) => ({
-      model: model.replace(/-20\d{6}$/, ''),
-      tokens: trayFmtTok(e.tokens),
-      cost: trayMoney(e.cost),
-      pct: total > 0 ? Math.round((e.cost / total) * 100) : 0,
-    }));
+  // Top 3 + an aggregated "其他" row: the tail is rarely decision-relevant
+  // (top 3 usually cover ~90%), and 6 rows turned the quick panel into a
+  // scroll session. Aggregating keeps the ledger complete at 4 rows.
+  const sorted = [...byModel.entries()]
+    .sort((a, b) => (b[1].cost - a[1].cost) || (b[1].tokens - a[1].tokens));
+  const top = sorted.slice(0, 3);
+  const rest = sorted.slice(3);
+  const rows = top.map(([model, e]) => ({
+    model: model.replace(/-20\d{6}$/, ''),
+    tokens: trayFmtTok(e.tokens),
+    cost: trayMoney(e.cost),
+    pct: total > 0 ? Math.round((e.cost / total) * 100) : 0,
+  }));
+  if (rest.length) {
+    let restTokens = 0;
+    let restCost = 0;
+    for (const [, e] of rest) {
+      restTokens += e.tokens;
+      restCost += e.cost;
+    }
+    rows.push({
+      model: `其他 ${rest.length} 個`,
+      tokens: trayFmtTok(restTokens),
+      cost: trayMoney(restCost),
+      pct: total > 0 ? Math.round((restCost / total) * 100) : 0,
+    });
+  }
+  return rows;
 }
 
 // Cost delta vs the previous equal-length window — same math and display as
@@ -390,6 +439,18 @@ function trayCacheStats(buckets) {
   return { hit: Math.round((cached / (cached + input)) * 100), read: trayFmtTok(cached) };
 }
 
+// Data freshness for the panel: mtime of the shared data file — the same
+// file the daemon writes and GET /api/usage reads. null when unreadable.
+function trayDataAsOf() {
+  try {
+    return new Date(statSync(getDataPath()).mtime).toLocaleTimeString('zh-Hant', {
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+  } catch {
+    return null;
+  }
+}
+
 async function updateTrayTitle() {
   if (!tray || !serverApi) return;
   const prices = loadPrices();
@@ -404,16 +465,20 @@ async function updateTrayTitle() {
   const money = trayMoney(cost);
   const tok = trayFmtTok(tokens);
   const hit = trayCacheStats(buckets);
+  const trend = trayRangeSeries(prices);
   tray.setToolTip(`Vibe Usage Desktop — ${money} · ${tok}`);
   pushTrayPanel({
     label: trayRangeLabel(),
     cost: money,
     tok,
     cache: hit,
+    asOf: trayDataAsOf(),
     delta: trayCostDelta(cost, prices),
-    series: trayRangeSeries(prices),
+    series: trend.bins,
+    ticks: trend.ticks,
     models: trayModelBreakdown(buckets, prices),
     quotas: trayQuotaSummary(loadData().quotas),
+    range: trayRange,
   });
   if (process.platform !== 'darwin') return;
   // Skip identical re-renders (the 60s tick usually changes nothing).
@@ -438,9 +503,21 @@ async function updateTrayTitle() {
 ipcMain.on('vibe-tray-range', (_event, r) => {
   const next = sanitizeTrayRange(r);
   if (!next) return;
+  // Main owns the canonical range. Load-time echoes (dashboard reports what
+  // it was told) must not re-broadcast, or dashboard would loop load() forever.
+  const changed = JSON.stringify(next) !== JSON.stringify(trayRange);
   trayRange = next;
   updateTrayTitle();
+  if (changed) broadcastRange();
 });
+
+// Fan the canonical range out to every renderer (dashboard applies + reloads,
+// other windows ignore what they don't listen for).
+function broadcastRange() {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('vibe-range-changed', trayRange);
+  }
+}
 
 ipcMain.on('vibe-open-dashboard', () => {
   if (!win) createWindow();
@@ -474,54 +551,90 @@ const PANEL_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
     -webkit-user-select: none; user-select: none;
   }
   .label { font-size: 11px; font-weight: 600; letter-spacing: .04em; color: #858585; }
+  #chips { display: flex; gap: 5px; }
+  #chips button {
+    flex: 1; padding: 4px 0; border: 1px solid #292929; border-radius: 4px;
+    background: transparent; color: #a1a1a1; font-size: 11px; cursor: pointer;
+  }
+  #chips button:hover { border-color: #858585; color: #ffffff; }
+  #chips button.active { background: #292929; color: #ffffff; border-color: #858585; }
   .costr { display: flex; align-items: baseline; gap: 8px; }
-  .cost { font-size: 28px; font-weight: 700; letter-spacing: -.02em; line-height: 1.15; }
+  .cost { font-size: 28px; font-weight: 700; letter-spacing: -.02em; line-height: 1.15; font-variant-numeric: tabular-nums; }
   .delta { font-size: 11px; font-weight: 600; color: #858585; font-variant-numeric: tabular-nums; }
   .delta.up { color: #33cc99; }
   .delta.down { color: #f87171; }
-  .tok { font-size: 12px; color: #a1a1a1; }
+  .tok { font-size: 12px; color: #a1a1a1; font-variant-numeric: tabular-nums; }
+  .asof { font-size: 10px; color: #858585; font-variant-numeric: tabular-nums; }
+  .foot { display: flex; gap: 6px; margin-top: 2px; }
   #summary { flex: 1; min-height: 0; overflow-y: auto; }
   .section-title { font-size: 10px; font-weight: 600; color: #858585; margin: 12px 0 7px; }
-  #bars { display: flex; align-items: flex-end; gap: 5px; height: 36px; }
-  .bar { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; }
+  #bars { display: flex; align-items: flex-end; gap: 5px; height: 48px; }
+  .bar { flex: 1; height: 100%; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; }
   .bar i { display: block; background: #33cc99; border-radius: 3px 3px 1px 1px; min-height: 2px; }
-  .bar b { font-weight: 400; font-size: 9px; color: #858585; text-align: center; }
+  #axis { position: relative; height: 12px; font-size: 9px; color: #858585; font-variant-numeric: tabular-nums; }
+  .tick { position: absolute; top: 0; white-space: nowrap; }
+  .tick.first { left: 0; }
+  .tick.last { right: 0; }
+  .tick.mid { left: 50%; transform: translateX(-50%); }
   #models { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid #292929; }
   .mitem { display: flex; flex-direction: column; gap: 3px; }
   .mrow { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
   .mname { flex: 1; color: #a1a1a1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .mtok { color: #858585; font-size: 10px; white-space: nowrap; }
-  .mcost { color: #ffffff; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .mtok { color: #858585; font-size: 10px; white-space: nowrap; flex: 0 0 44px; text-align: right; }
+  .mcost { color: #ffffff; font-weight: 600; white-space: nowrap; flex: 0 0 88px; text-align: right; font-variant-numeric: tabular-nums; }
   .mtrack { height: 3px; background: #232323; border-radius: 2px; overflow: hidden; }
   .mtrack i { display: block; height: 100%; background: #33cc99; border-radius: 2px; }
   #quotas { display: flex; flex-direction: column; gap: 9px; }
-  .qrow { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+  .qrow { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; }
   .qvalue { font-weight: 600; color: #33cc99; font-variant-numeric: tabular-nums; }
   .qvalue.warn { color: #fbbf24; }
   .qvalue.full { color: #f87171; }
   .qvalue.unknown, .empty { color: #858585; font-size: 11px; }
-  .qnote { color: #858585; font-size: 10px; margin-top: 3px; }
+  .qnote { color: #858585; font-size: 10px; margin-top: 3px; font-variant-numeric: tabular-nums; }
   #open {
-    margin-top: 2px; padding: 7px 0; border: 1px solid #292929; border-radius: 4px;
+    flex: 1; padding: 7px 0; border: 1px solid #292929; border-radius: 4px;
     background: transparent; color: #a1a1a1; font-size: 12px; cursor: pointer;
   }
-  #open:hover { border-color: #858585; color: #ffffff; }
+  #open:hover, #sync:hover:not(:disabled) { border-color: #858585; color: #ffffff; }
+  #sync {
+    padding: 7px 12px; border: 1px solid #292929; border-radius: 4px;
+    background: transparent; color: #a1a1a1; font-size: 12px; cursor: pointer; white-space: nowrap;
+  }
+  #sync:disabled { opacity: .5; cursor: default; }
 </style></head><body><div id="card">
   <div class="label" id="label"></div>
+  <div id="chips">
+    <button data-kind="today">今天</button>
+    <button data-kind="hours" data-h="24">24H</button>
+    <button data-kind="preset" data-days="7">7D</button>
+    <button data-kind="preset" data-days="30">30D</button>
+  </div>
   <div class="costr"><span class="cost" id="cost"></span><span class="delta" id="delta" hidden></span></div>
   <div class="tok" id="tok"></div>
+  <div class="asof" id="asof" hidden></div>
   <div id="summary">
   <div class="section-title">模型成本排行 · 佔區間總成本</div>
   <div id="models"></div>
   <div class="section-title">區間成本趨勢</div>
   <div id="bars"></div>
+  <div id="axis"></div>
   <div class="section-title" id="quotas-title">目前配額 · 最緊張窗口（非所選區間）</div>
   <div id="quotas"></div>
   </div>
-  <button id="open">Open Dashboard</button>
+  <div class="foot">
+    <button id="sync">更新</button>
+    <button id="open">Open Dashboard</button>
+  </div>
 </div><script>
   function renderPanel(o) {
     document.getElementById('label').textContent = o.label;
+    document.querySelectorAll('#chips button').forEach((b) => {
+      const k = b.dataset.kind;
+      let active = o.range.kind === k;
+      if (k === 'preset') active = o.range.kind === 'preset' && o.range.days === Number(b.dataset.days);
+      if (k === 'hours') active = o.range.kind === 'hours' && o.range.h === Number(b.dataset.h);
+      b.classList.toggle('active', active);
+    });
     document.getElementById('cost').textContent = o.cost;
     const d = document.getElementById('delta');
     if (o.delta) {
@@ -534,19 +647,35 @@ const PANEL_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
     let tokText = '總 ' + o.tok + ' tokens';
     if (o.cache) tokText += ' · 緩存讀 ' + o.cache.read + ' · 命中 ' + o.cache.hit + '%';
     document.getElementById('tok').textContent = tokText;
+    const asof = document.getElementById('asof');
+    asof.hidden = !o.asOf;
+    if (o.asOf) asof.textContent = '更新於 ' + o.asOf;
     const bars = document.getElementById('bars');
     bars.textContent = '';
     const max = Math.max(...o.series.map((x) => x.v), 0.0001);
     for (const x of o.series) {
       const bar = document.createElement('div');
       bar.className = 'bar';
-      bar.title = x.label ? x.label + ' — $' + x.v.toFixed(2) : '$' + x.v.toFixed(2);
+      bar.title = x.t + ' — $' + x.v.toFixed(2);
       const fill = document.createElement('i');
       fill.style.height = Math.max(3, Math.round((x.v / max) * 100)) + '%';
-      const cap = document.createElement('b');
-      cap.textContent = x.label;
-      bar.append(fill, cap);
+      bar.append(fill);
       bars.append(bar);
+    }
+    // Mid ticks sit over their bar's center (left = (i+0.5)/n); endpoints pin
+    // to the edges so nothing clips.
+    const axis = document.getElementById('axis');
+    axis.textContent = '';
+    const n = o.series.length;
+    for (const tick of o.ticks) {
+      const s = document.createElement('span');
+      s.textContent = tick.t;
+      s.className = 'tick ' + (tick.i === 0 ? 'first' : tick.i === n - 1 ? 'last' : 'mid');
+      if (s.className.includes('mid')) {
+        s.style.left = (((tick.i + 0.5) / n) * 100).toFixed(2) + '%';
+        s.style.transform = 'translateX(-50%)';
+      }
+      axis.append(s);
     }
     const models = document.getElementById('models');
     models.textContent = '';
@@ -606,9 +735,31 @@ const PANEL_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
       quotas.append(item);
     }
   }
+  // Chips ask main to change the canonical range; the refreshed push (same
+  // updateTrayTitle path) comes back with new numbers AND the new active chip.
+  document.querySelectorAll('#chips button').forEach((b) => {
+    b.addEventListener('click', () => {
+      const kind = b.dataset.kind;
+      const r = kind === 'today' ? { kind: 'today' }
+        : kind === 'hours' ? { kind: 'hours', h: Number(b.dataset.h) }
+        : { kind: 'preset', days: Number(b.dataset.days) };
+      window.vibeDesktop.setRange(r);
+    });
+  });
   document.getElementById('open').addEventListener('click', () => {
     window.vibeDesktop.openDashboard();
     window.close();
+  });
+  // Runs the same single-flight CLI sync the dashboard's 更新 button uses;
+  // main refreshes tray + panel when it lands.
+  const syncBtn = document.getElementById('sync');
+  syncBtn.addEventListener('click', async () => {
+    if (syncBtn.disabled) return;
+    syncBtn.disabled = true;
+    syncBtn.textContent = '更新中…';
+    try { await window.vibeDesktop.syncNow(); } catch { /* main reports failures itself */ }
+    syncBtn.disabled = false;
+    syncBtn.textContent = '更新';
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.close(); });
 </script></body></html>`;
@@ -666,6 +817,12 @@ function toggleTrayPanel() {
   positionTrayPanel();
   panel.show();
   panel.focus();
+  // Chromium hands initial focus to the first button (今天 chip) and marks it
+  // :focus-visible — a green ring on every open. Blur it; real Tab navigation
+  // still gets the ring.
+  panel.webContents
+    .executeJavaScript('document.activeElement && document.activeElement.blur()')
+    .catch(() => {});
   // Fill the freshly shown card. If the page is still loading, the immediate
   // push no-ops (caught rejection) and this retry fills it on load.
   if (panel.webContents.isLoading()) {
@@ -947,7 +1104,9 @@ ipcMain.handle('vibe-sync', () => {
     const res = await run(cli.cmd, [...cli.pre, 'sync'], cli.env);
     return { ok: res.ok, out: res.out.slice(-2000) };
   })();
-  const done = syncing.finally(() => { syncing = null; });
+  // Synced data lands in the shared file — refresh tray readout and the
+  // quick panel (the dashboard refreshes itself from the resolved promise).
+  const done = syncing.finally(() => { syncing = null; updateTrayTitle(); });
   syncing = done;
   return done;
 });

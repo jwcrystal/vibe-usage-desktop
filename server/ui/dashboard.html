@@ -370,6 +370,20 @@ let data = null;
 let lastSig = null;
 // Range: { kind: 'preset', days } | { kind: 'hours', h } | { kind: 'today' } | { kind: 'custom', from, to }
 let range = { kind: 'today' };
+// Desktop shell owns the canonical range (the tray panel's chips can change
+// it): apply broadcasts from main and re-render. Main only fans out on real
+// changes, so the setRange echo in load() never loops back here. Plain
+// browser: no bridge, local state only.
+if (window.vibeDesktop && window.vibeDesktop.onRangeChanged) {
+  window.vibeDesktop.onRangeChanged((r) => {
+    if (!r || typeof r !== 'object' || !r.kind) return;
+    if (JSON.stringify(r) === JSON.stringify(range)) return;
+    range = r;
+    if (r.kind !== 'custom') hideCustom();
+    syncRangeButtons();
+    load();
+  });
+}
 // Client-side dimension filters, keyed by bucket field ('' = all).
 let filters = { source: '', model: '', project: '', hostname: '' };
 const $ = (s) => document.querySelector(s);
