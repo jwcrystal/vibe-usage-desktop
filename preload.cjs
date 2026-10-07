@@ -11,4 +11,5 @@ contextBridge.exposeInMainWorld('vibeDesktop', {
   quotaOAuthLogin: (productId) => ipcRenderer.invoke('vibe-quota-oauth-login', String(productId)),
   quotaKeyLogin: (productId, key) => ipcRenderer.invoke('vibe-quota-key-login', String(productId), String(key)),
   openExternal: (url) => ipcRenderer.invoke('vibe-open-external', String(url)),
+  openDashboard: () => ipcRenderer.send('vibe-open-dashboard'),
 });
