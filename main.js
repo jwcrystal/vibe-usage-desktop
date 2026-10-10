@@ -20,8 +20,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || process.env.VIBE_USAGE_PORT || 3456);
 const HOST = '127.0.0.1';
 const DASHBOARD_URL = `http://${HOST}:${PORT}/`;
+// Smoke mode must never share the normal instance's lock or dialogs: with a
+// real app already running, requestSingleInstanceLock() fails and app.quit()
+// exits 0 before the checks run — a silent false pass.
+const IS_SMOKE = process.env.VIBE_DESKTOP_SMOKE === '1';
 
-const gotLock = app.requestSingleInstanceLock();
+const gotLock = IS_SMOKE || app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 }
@@ -56,7 +60,7 @@ async function startServer() {
   });
   start();
   await new Promise((r) => setTimeout(r, 600));
-  if (portInUse) {
+  if (portInUse && !IS_SMOKE) {
     dialog.showMessageBox({
       type: 'info',
       title: 'Vibe Usage Desktop',
@@ -1261,10 +1265,15 @@ app.on('window-all-closed', (e) => {
   // Keep running in tray on all platforms; quit via tray menu.
 });
 
-if (process.env.VIBE_DESKTOP_SMOKE === '1') {
+if (IS_SMOKE) {
   app.whenReady().then(async () => {
     try {
       await startServer();
+      if (portInUse) {
+        throw new Error(
+          `port ${PORT} is already in use — smoke would test another instance, not this build (set PORT to a free port)`,
+        );
+      }
       const res = await fetch(DASHBOARD_URL);
       const htmlOk = res.status === 200 && (await res.text()).includes('<html');
       console.log(`[smoke] GET / -> ${res.status}, html=${htmlOk}`);
