@@ -38,10 +38,13 @@ export function loadPrices() {
 // cacheWriteMtok is optional (missing = 0): models without a published
 // cache-write price keep their previous cost unchanged.
 export function estimateCost(bucket, prices = loadPrices()) {
-  // A source-scoped table lets a few ids that Command Code serves at its own
-  // catalog price coexist with the same id from another vendor at a different
-  // price (e.g. gpt-5.6-sol). Everything else keeps the model-keyed lookup.
-  const entry = prices.sources?.[bucket.source]?.models?.[bucket.model]
+  // Provider-scoped first: a router CLI (OpenCode) records which provider
+  // actually billed the call (`commandcode`, `openai`, …), which can differ
+  // from the tool id in `source`. A reseller keeps its price under its own
+  // name, so there provider === source and this layer is a no-op. Then the
+  // source-scoped table (reseller catalog collision), then canonical.
+  const entry = prices.sources?.[bucket.provider]?.models?.[bucket.model]
+    ?? prices.sources?.[bucket.source]?.models?.[bucket.model]
     ?? prices.models[bucket.model];
   if (!entry) return null;
   const perToken = {
