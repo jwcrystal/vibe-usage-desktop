@@ -1063,6 +1063,24 @@ async function installDaemon() {
   refreshTrayMenu();
 }
 
+// Startup nudge: a fresh machine has no daemon, so the shared data file never
+// gets refreshed (the daemon is what syncs every 30m). Ask before installing
+// anything — the tray menu's own toggle remains the manual path, and machines
+// that already have the daemon see nothing.
+async function offerDaemonInstall() {
+  if (daemonInstalled()) return;
+  const r = await dialog.showMessageBox({
+    type: 'question',
+    buttons: ['安裝', '稍後'],
+    defaultId: 0,
+    cancelId: 1,
+    title: 'Vibe Usage Desktop',
+    message: '要開啟背景自動同步嗎？',
+    detail: '安裝 vibe-usage daemon 後，使用量會每 30 分鐘自動更新，不必手動按「更新」。之後可從選單列的「Usage Daemon」隨時關閉。',
+  });
+  if (r.response === 0) await installDaemon();
+}
+
 // Fresh-machine pairing: write ~/.vibe-usage/config.json so the daemon feeds
 // this app's embedded server (same file the CLI and server both read; see
 // vibe-usage config.js and server.js resolveExpectedKey). Never touch an
@@ -1268,5 +1286,6 @@ if (process.env.VIBE_DESKTOP_SMOKE === '1') {
     await startServer();
     createTray();
     createWindow();
+    offerDaemonInstall();
   });
 }
