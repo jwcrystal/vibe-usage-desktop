@@ -398,7 +398,11 @@ function trayCostDelta(curCost, prices) {
 
 // Quotas are current snapshots, not historical usage for the selected range.
 // Only products the user enabled in quota sync appear (mirrors the tray
-// menu checkboxes); the most constrained window is shown per product.
+// menu checkboxes). The row is pinned to the rolling 5-hour window so every
+// product reads on the same scale; the dashboard cards carry every window.
+// A product without a 5h window (pay-as-you-go Command Code) falls back to
+// its most constrained one. The warning colour still tracks the tightest
+// window, so a spent weekly/monthly pool is never hidden by a calm 5h.
 function trayQuotaSummary(snapshots, now = Date.now()) {
   const enabled = new Set(quotaSyncEnabled());
   return QUOTA_PRODUCTS.filter((p) => enabled.has(p.id)).map(({ id, label }) => {
@@ -414,7 +418,9 @@ function trayQuotaSummary(snapshots, now = Date.now()) {
       details.push((m.snapshot.hostname ? m.snapshot.hostname + ' · ' : '') + m.label
         + '：剩餘 ' + Math.round(100 - m.utilization) + '%');
     }
-    const meter = meters[0];
+    // meters is sorted by utilisation desc, so meters[0] is the tightest.
+    const tightest = meters[0];
+    const meter = meters.find((m) => m.label === '5h') || tightest;
     const remaining = Math.max(0, Math.min(100, 100 - meter.utilization));
     const reset = Date.parse(meter.resetsAt);
     const asOf = Date.parse(meter.snapshot.dataAsOf || meter.snapshot.fetchedAt);
@@ -426,7 +432,7 @@ function trayQuotaSummary(snapshots, now = Date.now()) {
     return {
       label, remaining: Math.round(remaining),
       note: meter.label + ' · ' + resetText + (stale ? ' · 舊資料' : ''),
-      tone: meter.utilization >= 95 ? 'full' : meter.utilization >= 80 ? 'warn' : '',
+      tone: tightest.utilization >= 95 ? 'full' : tightest.utilization >= 80 ? 'warn' : '',
       tip: details.join('\n') + '\n資料時間：' + (Number.isFinite(asOf)
         ? new Date(asOf).toLocaleString('zh-TW') : '未知'),
     };
@@ -632,7 +638,7 @@ const PANEL_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
   <div class="section-title">區間成本趨勢</div>
   <div id="bars"></div>
   <div id="axis"></div>
-  <div class="section-title" id="quotas-title">目前配額 · 最緊張窗口（非所選區間）</div>
+  <div class="section-title" id="quotas-title">目前配額 · 5 小時窗口（非所選區間）</div>
   <div id="quotas"></div>
   </div>
   <div class="foot">
