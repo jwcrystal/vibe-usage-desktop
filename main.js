@@ -189,7 +189,10 @@ function renderTray(o) {
   const mark = 18;
   const gap = 6;
   const height = 20;
-  const width = Math.ceil(mark + gap + Math.max(costW, tokW)) + 0.5;
+  // Blank strings mean "no usage in range" — drop the gap too, so the mark
+  // sits alone instead of leaving 6px of dead space after it.
+  const textW = Math.max(costW, tokW);
+  const width = Math.ceil(mark + (textW > 0 ? gap + textW : 0)) + 0.5;
   const canvas = document.createElement('canvas');
   canvas.width = width * 2;
   canvas.height = height * 2;
@@ -464,9 +467,13 @@ async function updateTrayTitle() {
   }
   const money = trayMoney(cost);
   const tok = trayFmtTok(tokens);
+  // The menu-bar strip hides its numbers when the range holds no usage — there
+  // is nothing to glance at, and `$0.0000 / 0` just reads as noise. The popover
+  // has room, so it keeps the real strings and shows the zero plainly.
+  const unused = tokens === 0;
   const hit = trayCacheStats(buckets);
   const trend = trayRangeSeries(prices);
-  tray.setToolTip(`Vibe Usage Desktop — ${money} · ${tok}`);
+  tray.setToolTip(unused ? 'Vibe Usage Desktop' : `Vibe Usage Desktop — ${money} · ${tok}`);
   pushTrayPanel({
     label: trayRangeLabel(),
     cost: money,
@@ -481,11 +488,14 @@ async function updateTrayTitle() {
     range: trayRange,
   });
   if (process.platform !== 'darwin') return;
+  // Menu-bar strip: blank over unused, matching the tooltip above.
+  const stripMoney = unused ? '' : money;
+  const stripTok = unused ? '' : tok;
   // Skip identical re-renders (the 60s tick usually changes nothing).
-  const key = `${money}|${tok}`;
+  const key = `${stripMoney}|${stripTok}`;
   if (key === lastTrayKey) return;
   try {
-    const dataUrl = await renderTrayImage(money, tok);
+    const dataUrl = await renderTrayImage(stripMoney, stripTok);
     const image = nativeImage.createEmpty();
     image.addRepresentation({ scaleFactor: 2, dataURL: dataUrl });
     image.setTemplateImage(true);
@@ -495,7 +505,7 @@ async function updateTrayTitle() {
   } catch (err) {
     // Never leave the tray blank: fall back to the single-line text title.
     console.error('[tray] image render failed, using text title:', err.message);
-    tray.setTitle(`${money} · ${tok}`, { fontType: 'monospacedDigit' });
+    tray.setTitle(unused ? '' : `${money} · ${tok}`, { fontType: 'monospacedDigit' });
     lastTrayKey = null;
   }
 }
