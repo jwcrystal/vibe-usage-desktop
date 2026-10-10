@@ -1414,7 +1414,7 @@ function exportReport() {
   const cur = sumMetrics(buckets, sess, { min: curMin, max: curMax });
   const hasPrev = prev && ((prev.buckets || []).length || (prev.sessions || []).length);
   const pr = hasPrev ? sumMetrics(prev.buckets || [], prev.sessions || [], { min: curMin - span, max: curMin }) : null;
-  const unpriced = [...new Set(buckets.filter((b) => b.estimatedCost == null).map((b) => b.model || 'unknown'))];
+  const unpriced = [...new Set(buckets.filter((b) => b.estimatedCost == null).map((b) => (b.source ? b.source + ' / ' : '') + (b.model || 'unknown')))];
   const activeFilters = FILTER_KEYS.filter((key) => filters[key]).map((key) => FILTER_LABELS[key] + '=' + filters[key]);
   const meta = {
     rangeLabel: rangeLabel(),

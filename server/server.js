@@ -355,10 +355,14 @@ const router = {
     });
     // Compute estimatedCost live from the current price table.
     for (const b of buckets) b.estimatedCost = estimateCost(b);
-    // Distinct models with no price entry — surfaced so undercounted KPIs
-    // are visible instead of silently low.
+    // Distinct (source, model) pairs with no price entry — surfaced so
+    // undercounted KPIs are visible instead of silently low. The source is
+    // included because pricing is source-scoped: a router CLI (OpenCode) can
+    // emit an id that a reseller catalog (Command Code) also lists, and only
+    // one of those sources may be priced.
     const unpricedModels = [...new Set(
-      buckets.filter((b) => b.estimatedCost === null).map((b) => b.model),
+      buckets.filter((b) => b.estimatedCost === null)
+        .map((b) => (b.source ? `${b.source} / ${b.model}` : b.model)),
     )].sort();
     sendJson(res, 200, {
       buckets,
