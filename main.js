@@ -403,17 +403,23 @@ function trayCostDelta(curCost, prices) {
 // A product without a 5h window (pay-as-you-go Command Code) falls back to
 // its most constrained one. The warning colour still tracks the tightest
 // window, so a spent weekly/monthly pool is never hidden by a calm 5h.
+// The subscription tier rides along as `plan` for the row's badge.
 function trayQuotaSummary(snapshots, now = Date.now()) {
   const enabled = new Set(quotaSyncEnabled());
   return QUOTA_PRODUCTS.filter((p) => enabled.has(p.id)).map(({ id, label }) => {
     const matches = snapshots.filter((s) => s.id === id);
+    // The plan is an account fact, not a per-window number, so one badge can
+    // only speak for the whole row when every host reporting this product
+    // agrees; a mixed Pro/Max pair drops it rather than let it lie.
+    const plans = [...new Set(matches.map((s) => s.planLabel).filter(Boolean))];
+    const plan = plans.length === 1 ? plans[0] : '';
     const details = [];
     const meters = matches.flatMap((s) => {
       if (s.status !== 'ok') return [];
       return (s.meters || []).filter((m) => Number.isFinite(m.utilization))
         .map((m) => ({ ...m, snapshot: s }));
     }).sort((a, b) => b.utilization - a.utilization);
-    if (!meters.length) return { label, note: '未取得', remaining: null, tone: '', tip: '' };
+    if (!meters.length) return { label, plan, note: '未取得', remaining: null, tone: '', tip: '' };
     for (const m of meters) {
       details.push((m.snapshot.hostname ? m.snapshot.hostname + ' · ' : '') + m.label
         + '：剩餘 ' + Math.round(100 - m.utilization) + '%');
@@ -430,7 +436,7 @@ function trayQuotaSummary(snapshots, now = Date.now()) {
         month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
       }) + ' 重置') : '重置時間未知';
     return {
-      label, remaining: Math.round(remaining),
+      label, plan, remaining: Math.round(remaining),
       note: meter.label + ' · ' + resetText + (stale ? ' · 舊資料' : ''),
       tone: tightest.utilization >= 95 ? 'full' : tightest.utilization >= 80 ? 'warn' : '',
       tip: details.join('\n') + '\n資料時間：' + (Number.isFinite(asOf)
@@ -606,6 +612,9 @@ const PANEL_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
   .mtrack i { display: block; height: 100%; background: #33cc99; border-radius: 2px; }
   #quotas { display: flex; flex-direction: column; gap: 9px; }
   .qrow { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; }
+  .qname { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+  .qlabel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .qplan { flex-shrink: 0; background: #2f2f2f; color: #d4d4d4; border-radius: 4px; padding: 1px 6px; font-size: 9px; font-weight: 600; }
   .qvalue { font-weight: 600; color: #33cc99; font-variant-numeric: tabular-nums; }
   .qvalue.warn { color: #fbbf24; }
   .qvalue.full { color: #f87171; }
@@ -739,8 +748,21 @@ const PANEL_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
       item.title = q.tip;
       const row = document.createElement('div');
       row.className = 'qrow';
+      // The subscription tier rides beside the product name, the way the
+      // dashboard's card head shows it; the value stays pinned right, and the
+      // name ellipsises before the badge does.
       const name = document.createElement('span');
-      name.textContent = q.label;
+      name.className = 'qname';
+      const product = document.createElement('span');
+      product.className = 'qlabel';
+      product.textContent = q.label;
+      name.append(product);
+      if (q.plan) {
+        const plan = document.createElement('span');
+        plan.className = 'qplan';
+        plan.textContent = q.plan;
+        name.append(plan);
+      }
       const value = document.createElement('span');
       value.className = 'qvalue ' + (q.remaining === null ? 'unknown' : q.tone);
       value.textContent = q.remaining === null ? '未取得' : '剩餘 ' + q.remaining + '%';
