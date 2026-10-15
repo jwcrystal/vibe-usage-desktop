@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented here.
 
+> Not maintained between `[0.1.5]` and `[0.5.5]`: entries for 0.1.6–0.5.4 are
+> missing and are not backfilled.
+
+## [0.5.5] - 2026-10-15
+
+### Fixed
+
+- Background daemon: the installed service now re-applies `ELECTRON_RUN_AS_NODE`. The desktop shell installs the daemon through the bundled CLI run by Electron in Node mode, so the unit's executable is the Electron binary; without the flag launchd / systemd / Task Scheduler started a GUI app instead of the daemon (bundled CLI `jwcrystal/vibe-usage`@2769bcc).
+- Credential files (`~/.codex/auth.json`, `~/.vibe-usage/codex-oauth.json`, `~/.commandcode/auth.json`, and their `.vibe-bak` backups) are now written owner-only (0600). They carry refresh tokens and API keys and were previously world-readable.
+
+### Security
+
+- Local server (`vibe-usage-local-server` 0.3.3): requests whose `Host` is not loopback are refused (DNS-rebinding guard) and the wildcard `Access-Control-Allow-Origin: *` is gone. `GET /` injects the API key into the served HTML, so any website could previously read it and then drive `DELETE /api/usage/ingest` and the quota-sync writer. A deliberate non-loopback bind can list its names in `VIBE_USAGE_ALLOWED_HOSTS`.
+
+### Changed
+
+- Local server (`vibe-usage-local-server` 0.3.3): `GET /api/usage` loads the price table once per request instead of once per bucket.
+
 ## [0.1.5] - 2026-10-01
 
 ### Changed
