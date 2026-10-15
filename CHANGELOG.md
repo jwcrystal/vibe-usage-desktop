@@ -5,6 +5,12 @@ All notable changes to this project are documented here.
 > Not maintained between `[0.1.5]` and `[0.5.5]`: entries for 0.1.6–0.5.4 are
 > missing and are not backfilled.
 
+## [0.5.6] - 2026-10-15
+
+### Fixed
+
+- Background daemon: it now reloads when the installed CLI sources change under it. Node holds the CLI's files in memory from startup and the installed service keeps the old process alive (`KeepAlive` / `Restart=on-failure`), so an upgraded install kept running the previous code indefinitely — a vendor sync carrying a provider fix could sit unused while the daemon went on reporting its stale result every 30m, with nothing in the output pointing at the version. The daemon now watches `bin/` and `src/`, waits for the change to settle (a vendor sync writes many files in sequence), and exits so the service relaunches it; Windows' Task Scheduler has no restart-on-failure policy, so there it reports instead of exiting (bundled CLI `jwcrystal/vibe-usage`@d80ae27).
+
 ## [0.5.5] - 2026-10-15
 
 ### Fixed
