@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { loadData, saveData, ingestBuckets, upsertQuotaSnapshots, getDataPath, hash } from './store.js';
 import { logEvent } from './log.js';
-import { estimateCost } from './prices.js';
+import { loadPrices, estimateCost } from './prices.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DASHBOARD_PATH = join(__dirname, 'ui', 'dashboard.html');
@@ -210,12 +210,12 @@ function parseBody(req) {
 
 function sendJson(res, status, body) {
   const payload = JSON.stringify(body);
+  // No CORS headers: the dashboard is served same-origin from this server and
+  // the CLI is a Node client, so neither needs them. A wildcard here would let
+  // any website read the API key injected into GET / (see serveDashboard).
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(payload),
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Authorization, Content-Type, Content-Encoding',
-    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   });
   res.end(payload);
 }
@@ -353,8 +353,10 @@ const router = {
       from: params.get('from'),
       to: params.get('to'),
     });
-    // Compute estimatedCost live from the current price table.
-    for (const b of buckets) b.estimatedCost = estimateCost(b);
+    // Compute estimatedCost live from the current price table. Load it once:
+    // estimateCost's own default would re-read prices.json per bucket.
+    const prices = loadPrices();
+    for (const b of buckets) b.estimatedCost = estimateCost(b, prices);
     // Distinct (source, model) pairs with no price entry — surfaced so
     // undercounted KPIs are visible instead of silently low. The source is
     // included because pricing is source-scoped: a router CLI (OpenCode) can
@@ -455,6 +457,27 @@ const router = {
   },
 };
 
+// --- request-origin guard (DNS rebinding) --------------------------------
+// A page from any origin can reach this loopback server by pointing its own
+// hostname at 127.0.0.1; the browser then treats the request as same-origin,
+// CORS never runs, and only the Host header reveals the true caller. While
+// bound to loopback, trust only loopback Host names. A deliberate non-loopback
+// bind cannot enumerate its own hostnames, so it opts out; VIBE_USAGE_ALLOWED_HOSTS
+// adds explicit names for either case.
+const ALLOWED_HOSTS = new Set(
+  (process.env.VIBE_USAGE_ALLOWED_HOSTS || '')
+    .split(',').map((h) => h.trim().toLowerCase()).filter(Boolean),
+);
+
+function hostAllowed(req) {
+  const host = String(req.headers.host || '')
+    .replace(/:\d+$/, '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (!host) return false;
+  if (ALLOWED_HOSTS.has(host)) return true;
+  if (!LOOPBACK_HOSTS.has(String(HOST).toLowerCase())) return true;
+  return LOOPBACK_HOSTS.has(host);
+}
+
 const server = http.createServer((req, res) => {
   const started = Date.now();
   res.on('finish', () => {
@@ -462,15 +485,17 @@ const server = http.createServer((req, res) => {
       console.log(`[req] ${req.method} ${req.url} -> ${res.statusCode} (${Date.now() - started}ms, ua=${(req.headers['user-agent'] || '').slice(0, 60)})`);
     }
   });
+  if (!hostAllowed(req)) {
+    logEvent('auth', '403', { reason: 'host', host: String(req.headers.host || '').slice(0, 64) });
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('forbidden host');
+    return;
+  }
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const path = url.pathname.replace(/\/+$/, '') || '/';
   const routeKey = `${req.method} ${path}`;
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Authorization, Content-Type, Content-Encoding',
-      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    });
+    res.writeHead(204);
     res.end();
     return;
   }
