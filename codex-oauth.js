@@ -8,7 +8,7 @@
 //
 // Both files are written on login and on every refresh. A one-time backup of
 // any pre-existing auth.json is kept as auth.json.vibe-bak.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -30,7 +30,11 @@ function readJson(path) {
 }
 
 function writeJson(path, value) {
-  writeFileSync(path, JSON.stringify(value, null, 2) + '\n');
+  // Token-bearing file: owner-only on POSIX (best effort on Windows, whose
+  // permission model differs). writeFileSync's mode applies only on create,
+  // so an existing world-readable file is chmod'd as well.
+  writeFileSync(path, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 });
+  try { chmodSync(path, 0o600); } catch { /* Windows permission model differs */ }
 }
 
 function deviceId() {
@@ -61,7 +65,7 @@ export function writeBoth(cred) {
   writeJson(SIDECAR, cred);
   mkdirSync(CODEX_DIR, { recursive: true });
   if (existsSync(AUTH_FILE) && !existsSync(AUTH_BACKUP)) {
-    writeFileSync(AUTH_BACKUP, readFileSync(AUTH_FILE, 'utf8'));
+    writeFileSync(AUTH_BACKUP, readFileSync(AUTH_FILE, 'utf8'), { mode: 0o600 });
   }
   writeJson(AUTH_FILE, toCodexAuth(cred));
 }

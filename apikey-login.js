@@ -14,7 +14,7 @@
 //
 // A key is validated against the official endpoint BEFORE anything is
 // written; both files get a one-time .vibe-bak backup.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -32,9 +32,13 @@ function mergeWrite(path, mutator) {
   mkdirSync(dirname(path), { recursive: true });
   const bak = path + '.vibe-bak';
   if (existsSync(path) && !existsSync(bak)) {
-    writeFileSync(bak, readFileSync(path, 'utf8'));
+    writeFileSync(bak, readFileSync(path, 'utf8'), { mode: 0o600 });
   }
-  writeFileSync(path, JSON.stringify(parsed, null, 2) + '\n');
+  // Key-bearing file: owner-only on POSIX (best effort on Windows, whose
+  // permission model differs). writeFileSync's mode applies only on create,
+  // so an existing world-readable file is chmod'd as well.
+  writeFileSync(path, JSON.stringify(parsed, null, 2) + '\n', { mode: 0o600 });
+  try { chmodSync(path, 0o600); } catch { /* Windows permission model differs */ }
 }
 
 async function bearerGet(url, key, timeoutMs = 12_000) {
