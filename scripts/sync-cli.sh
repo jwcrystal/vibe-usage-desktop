@@ -10,14 +10,25 @@
 # snapshot and exit 0 so other machines / CI still build.
 set -e
 SRC="${1:-../vibe-usage}"
+REF="${2:-${VIBE_USAGE_CLI_REF:-main}}"
 if [ ! -d "$SRC/.git" ]; then
   echo "warn: $SRC is not a git checkout — keeping vendored cli/ snapshot."
   exit 0
 fi
+# Resolve the ref before cli/ is touched. `git archive <bad ref> | tar -x` reads
+# an empty stream and still exits 0, so an unresolvable ref used to empty the
+# vendor directory and report success.
+if ! SHA=$(git -C "$SRC" rev-parse --verify --quiet "$REF^{commit}"); then
+  echo "warn: $SRC has no commit at '$REF' — keeping vendored cli/ snapshot." >&2
+  echo "      pass a ref, or set VIBE_USAGE_CLI_REF, to vendor a different one." >&2
+  exit 1
+fi
 rm -rf cli
 mkdir -p cli
-# Vendor the committed state (HEAD), not the working tree — WIP stays out.
-git -C "$SRC" archive HEAD bin src package.json | tar -x -C cli
+# Vendor the committed state, not the working tree — WIP stays out. The ref is
+# named rather than HEAD so the snapshot stops depending on whichever branch the
+# sibling checkout happens to be sitting on.
+git -C "$SRC" archive "$SHA" bin src package.json | tar -x -C cli
 cat > cli/NOTICE <<'EOF'
 This directory is a vendored snapshot of the vibe-usage CLI
 (bin/ + src/ + package.json), taken from this project's fork:
@@ -57,4 +68,4 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 EOF
-echo "synced $SRC@HEAD (bin, src, package.json) -> ./cli (+ NOTICE)"
+echo "synced $SRC@$REF ($SHA) (bin, src, package.json) -> ./cli (+ NOTICE)"
