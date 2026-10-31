@@ -12,6 +12,18 @@
 - 關閉視窗後應用留在系統匣；要結束請由匣選單
 - 若 port 3456 已被占用（例如 launchd agent），應用會直接連上執行中的伺服器——不衝突、共用資料
 
+## 截圖
+
+### macOS 選單列
+
+<p align="center">
+  <img src="docs/screenshots/menu-bar.png" width="360" alt="macOS 選單列彈出面板，顯示費用、Token 總計、模型成本、趨勢與訂閱配額">
+</p>
+
+### 展開 Dashboard
+
+![展開的 Dashboard，顯示每小時趨勢、分時活躍熱力圖、用量分布與詳細紀錄](docs/screenshots/dashboard.png)
+
 ## 安裝
 
 ```bash

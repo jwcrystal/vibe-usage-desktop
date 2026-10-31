@@ -15,6 +15,18 @@ Cross-platform desktop shell (macOS / Windows / Linux) for
 - If port 3456 is already in use (e.g. the launchd agent), the app just
   connects to the running server — no conflict, shared data
 
+## Screenshots
+
+### macOS menu bar
+
+<p align="center">
+  <img src="docs/screenshots/menu-bar.png" width="360" alt="macOS menu bar popover with cost, token totals, model costs, trends, and subscription quota">
+</p>
+
+### Expanded dashboard
+
+![Expanded dashboard with hourly trends, activity heatmap, usage distributions, and detailed records](docs/screenshots/dashboard.png)
+
 ## Setup
 
 ```bash
