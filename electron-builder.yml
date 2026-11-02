@@ -7,6 +7,7 @@ files:
   - preload.cjs
   - codex-oauth.js
   - apikey-login.js
+  - login-launcher.js
   - server/**/*
   - cli/**/*
   - build/icon.png

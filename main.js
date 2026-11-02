@@ -1,12 +1,13 @@
 import { app, BrowserWindow, Tray, Menu, dialog, nativeImage, ipcMain, shell, screen } from 'electron';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { accessSync, constants, existsSync, readFileSync, mkdirSync, writeFileSync, chmodSync, watch, readdirSync, statSync } from 'node:fs';
-import { join, dirname, sep, delimiter } from 'node:path';
+import { existsSync, readFileSync, mkdirSync, writeFileSync, chmodSync, watch, statSync } from 'node:fs';
+import { join, dirname, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { loginCodex, refreshIfExpiring } from './codex-oauth.js';
 import { loginCommandcode, loginOpencodeGo } from './apikey-login.js';
+import { firstBinOnPath, openProductLogin } from './login-launcher.js';
 import { configureLogFile, logEvent } from './server/log.js';
 import { loadData, getDataPath } from './server/store.js';
 import { loadPrices, estimateCost } from './server/prices.js';
@@ -1172,11 +1173,11 @@ ipcMain.handle('vibe-sync', () => {
 });
 
 // Quota card 登入/安裝 buttons: per-product official login. The binary is
-// checked at click time — present, Terminal.app runs the tool's own login
-// command (each official login opens its browser OAuth itself and writes the
-// credential file the quota providers read); missing, the product site opens
-// instead. Ids are allowlisted and commands are static constants, never built
-// from renderer input.
+// checked at click time — present, the platform's terminal runs the tool's own
+// login command (each official login opens its browser OAuth itself and writes
+// the credential file the quota providers read); missing, the product site
+// opens instead. Ids are allowlisted and commands are static constants, never
+// built from renderer input.
 const QUOTA_LOGIN = {
   codex: { bin: ['codex'], cmd: 'codex login', url: 'https://github.com/openai/codex' },
   'claude-code': { bin: ['claude'], cmd: 'claude', hint: '已開啟 claude — 輸入 /login 登入', url: 'https://docs.anthropic.com/en/docs/claude-code/overview' },
@@ -1184,48 +1185,18 @@ const QUOTA_LOGIN = {
   'opencode-go': { bin: ['opencode'], cmd: 'opencode auth login', url: 'https://opencode.ai/docs' },
 };
 
-function firstBinOnPath(names) {
-  const home = homedir();
-  const dirs = new Set((process.env.PATH || '').split(delimiter).filter(Boolean));
-  // GUI (Finder/Dock) launches get a minimal PATH without the package
-  // managers and per-product bins where these CLIs actually live — scan the
-  // known locations explicitly instead of trusting the inherited PATH.
-  for (const dir of [
-    '/opt/homebrew/bin', '/usr/local/bin',
-    join(home, '.local', 'bin'), join(home, '.npm-global', 'bin'),
-    join(home, '.opencode', 'bin'),
-  ]) dirs.add(dir);
-  try {
-    for (const version of readdirSync(join(home, '.nvm', 'versions', 'node'))) {
-      dirs.add(join(home, '.nvm', 'versions', 'node', version, 'bin'));
-    }
-  } catch { /* nvm absent — fine */ }
-  for (const name of names) {
-    for (const dir of dirs) {
-      try {
-        accessSync(join(dir, name), constants.X_OK);
-        return name;
-      } catch { /* keep scanning */ }
-    }
-  }
-  return null;
-}
-
 ipcMain.handle('vibe-quota-login', (_event, productId) => {
   const act = QUOTA_LOGIN[productId];
   if (!act) return { action: 'none' };
   const bin = firstBinOnPath(act.bin);
   logEvent('quota-login', 'detected binary=' + (bin || 'none'), { product: productId });
-  if (!bin) {
-    shell.openExternal(act.url);
-    return { action: 'url' };
-  }
-  // Terminal.app runs the login; osascript failures fall back to the site.
-  const script = 'tell application "Terminal" to do script ' + JSON.stringify(act.cmd);
-  spawn('osascript', ['-e', script], { stdio: 'ignore' }).on('error', () => {
-    shell.openExternal(act.url);
+  return openProductLogin({
+    bin,
+    command: act.cmd,
+    url: act.url,
+    hint: act.hint || ('已開啟終端機：' + act.cmd),
+    openExternal: (url) => shell.openExternal(url),
   });
-  return { action: 'terminal', hint: act.hint || ('已開啟終端機：' + act.cmd) };
 });
 
 ipcMain.handle('vibe-open-external', (_event, url) => {

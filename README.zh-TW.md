@@ -12,6 +12,22 @@
 - 關閉視窗後應用留在系統匣；要結束請由匣選單
 - 若 port 3456 已被占用（例如 launchd agent），應用會直接連上執行中的伺服器——不衝突、共用資料
 
+## 平台差異
+
+- 訂閱配額在三平台都會抓取；列出配額的地方是 dashboard。彈出面板與選單列數字
+  僅限 macOS——Windows 與 Linux 的系統匣提供選單（含四個 Quota Sync 開關）
+  與 dashboard 卡片。
+- 只有 Codex、CommandCode、Claude Code、OpenCode Go 會把配額快照上傳到
+  dashboard。Kimi、Z.ai（ZCode）、Grok 由 `cli/` 在本機讀取、不上傳；
+  Cursor 只做偵測，沒有配額來源。
+- 背景同步需要服務管理器：launchd（macOS）、systemd（Linux）、
+  Task Scheduler（Windows）。沒有 systemd 的 Linux 主機，`daemon install`
+  會回報平台不支援；dashboard 的「更新」按鈕仍可執行一次性同步，一併刷新
+  你已開啟的配額。
+- 配額卡片的登入按鈕會用終端機執行產品自己的 CLI：macOS 用 Terminal.app、
+  Windows 開 `cmd` 視窗、Linux 依序找第一個可用的終端機模擬器。都開不起來時
+  改開產品官網。
+
 ## 截圖
 
 ### macOS 選單列
@@ -44,6 +60,7 @@ npm run preflight     # vendor ../vibe-usage @HEAD -> ./cli
 
 ```bash
 npm run smoke         # 啟動內嵌伺服器，GET /，以 0/1 結束
+npm test              # node:test 單元測試（終端機登入啟動、路徑規則）
 ```
 
 ## 建置安裝檔

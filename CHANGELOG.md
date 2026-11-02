@@ -5,6 +5,15 @@ All notable changes to this project are documented here.
 > Not maintained between `[0.1.5]` and `[0.5.5]`: entries for 0.1.6–0.5.4 are
 > missing and are not backfilled.
 
+## [0.5.7] - 2026-11-02
+
+### Fixed
+
+- Quotas on Windows: Claude Code's CLI was searched for as a file literally named `claude`, but npm installs `claude.cmd` there — so a machine with a healthy CLI reported as not installed and the probe (the only route a non-OAuth login has) never ran. The PATHEXT rule the registry already used is now shared with the probe (bundled CLI `jwcrystal/vibe-usage`@45be96d).
+- Quotas on Linux: OpenCode Go's store was read from `<home>/.local/share` unconditionally while the parser follows `XDG_DATA_HOME`, so a relocated store showed usage with no quota beside it. Both now read the same root (bundled CLI `jwcrystal/vibe-usage`@45be96d).
+- Quota cards: a revoked or expired Claude login now reads as `expired_credentials` instead of `missing_credentials` and keeps its plan label, so the card offers the action that fixes it instead of claiming nothing is installed (bundled CLI `jwcrystal/vibe-usage`@3290866).
+- Quota card login buttons now work on Windows and Linux. The launcher only knew `osascript` + Terminal.app, so both platforms always fell back to the product page; it now opens a `cmd` window on Windows and the first available terminal emulator on Linux, keeping the page as the fallback. The launcher and its PATH rules moved to `login-launcher.js`, covered by `npm test`.
+
 ## [0.5.6] - 2026-10-15
 
 ### Fixed
