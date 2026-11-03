@@ -5,6 +5,12 @@ All notable changes to this project are documented here.
 > Not maintained between `[0.1.5]` and `[0.5.5]`: entries for 0.1.6–0.5.4 are
 > missing and are not backfilled.
 
+## [0.5.10] - 2026-11-03
+
+### Fixed
+
+- Quotas: Claude's binary search now covers the installers' documented locations. The native installer keeps each version under `.local/share/claude/versions/` and only a launcher in `.local/bin`, and replacing that launcher is supported — so a launcher that was rewritten or removed used to hide a working install; the version directories are probed now, newest first. Windows also gets the per-platform manager trees, `%APPDATA%\npm` for npm's global shims and `%LOCALAPPDATA%\mise\shims`, instead of POSIX paths that could never match there. Every probe resolves `claude`, `claude.exe` or `claude.cmd` through the shared PATHEXT rule (bundled CLI `jwcrystal/vibe-usage`@26358cc).
+
 ## [0.5.9] - 2026-11-03
 
 ### Fixed
