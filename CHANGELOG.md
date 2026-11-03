@@ -5,6 +5,14 @@ All notable changes to this project are documented here.
 > Not maintained between `[0.1.5]` and `[0.5.5]`: entries for 0.1.6–0.5.4 are
 > missing and are not backfilled.
 
+## [0.5.8] - 2026-11-03
+
+### Fixed
+
+- Quotas: a Claude Code install that only lives inside Claude Desktop is now found. Desktop keeps its build at `claude-code/<version>/<build-hash>/claude.app`, one level deeper than the walk expected, so `findClaudeBinary` missed it: the product read as 未偵測到, the CLI probe (the route that also refreshes a lapsed login) never ran, and the card sat on 登入已過期 until the stored token lapsed. Both layouts are walked, newest version first (bundled CLI `jwcrystal/vibe-usage`@9a86407).
+- Quotas: on macOS a login that lives only in the Keychain now counts as detected. Presence reads the Keychain item's attributes — no `-w`, no secret, no ACL prompt — instead of only `~/.claude/.credentials.json`, which Claude Code never writes on that platform, so a Keychain-only machine showed 未偵測到 while its OAuth route had a usable login (bundled CLI `jwcrystal/vibe-usage`@9a86407).
+- Quota cards: Claude's 登入 button now finds the CLI the same way the probe does. It only searched PATH, so on a machine whose only Claude Code is Claude Desktop's it logged `detected binary=none` and did nothing; it now runs that binary by path, quoting the "Application Support" directory name.
+
 ## [0.5.7] - 2026-11-02
 
 ### Fixed

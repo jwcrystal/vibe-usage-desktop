@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, mkdirSync, writeFileSync, chmodSync, watch, statSync } from 'node:fs';
 import { join, dirname, sep } from 'node:path';
 import { homedir } from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loginCodex, refreshIfExpiring } from './codex-oauth.js';
 import { loginCommandcode, loginOpencodeGo } from './apikey-login.js';
 import { firstBinOnPath, openProductLogin } from './login-launcher.js';
@@ -1185,14 +1185,44 @@ const QUOTA_LOGIN = {
   'opencode-go': { bin: ['opencode'], cmd: 'opencode auth login', url: 'https://opencode.ai/docs' },
 };
 
-ipcMain.handle('vibe-quota-login', (_event, productId) => {
+// Claude's CLI can live where PATH never looks: when the user never installed it
+// separately, the only copy is the one Claude Desktop ships under "Application
+// Support", and a bare `claude` resolves to nothing. The quota providers already
+// know how to find it (PATH, version managers, the usual prefixes and both
+// Desktop bundle layouts), so the login action asks them instead of repeating a
+// weaker search — a machine whose only Claude Code is Desktop's used to log
+// `detected binary=none` and do nothing while its card asked to re-login.
+async function claudeLoginBinary() {
+  // In a packaged app the CLI lives in app.asar.unpacked (see electron-builder
+  // asarUnpack), so the specifier resolves inside the archive where those files
+  // are not — translate the path exactly like bundledCli does.
+  const modulePath = join(__dirname, 'cli', 'src', 'quotas', 'providers', 'claude-code.js')
+    .replace(`${sep}app.asar${sep}`, `${sep}app.asar.unpacked${sep}`);
+  try {
+    const { findClaudeBinary } = await import(pathToFileURL(modulePath).href);
+    return findClaudeBinary();
+  } catch {
+    return null; // a broken or partial vendor sync must not take the button down
+  }
+}
+
+// An absolute path run as a shell command needs quoting on POSIX, and Desktop's
+// binary sits under "Application Support" — a directory name with a space.
+function shellQuotedPath(path) {
+  if (process.platform === 'win32') return JSON.stringify(path);
+  return `'${path.replace(/'/g, `'\\''`)}'`;
+}
+
+ipcMain.handle('vibe-quota-login', async (_event, productId) => {
   const act = QUOTA_LOGIN[productId];
   if (!act) return { action: 'none' };
-  const bin = firstBinOnPath(act.bin);
+  const claude = productId === 'claude-code' ? await claudeLoginBinary() : null;
+  const bin = claude || firstBinOnPath(act.bin);
+  const command = claude ? shellQuotedPath(claude) : act.cmd;
   logEvent('quota-login', 'detected binary=' + (bin || 'none'), { product: productId });
   return openProductLogin({
     bin,
-    command: act.cmd,
+    command,
     url: act.url,
     hint: act.hint || ('已開啟終端機：' + act.cmd),
     openExternal: (url) => shell.openExternal(url),
