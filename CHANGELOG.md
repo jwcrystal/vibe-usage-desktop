@@ -5,6 +5,12 @@ All notable changes to this project are documented here.
 > Not maintained between `[0.1.5]` and `[0.5.5]`: entries for 0.1.6–0.5.4 are
 > missing and are not backfilled.
 
+## [0.5.9] - 2026-11-03
+
+### Fixed
+
+- Quotas: the Claude Desktop build search now covers every platform instead of the macOS path it was written on. The data directory follows `claude-roots.js` — Application Support on macOS, `%APPDATA%\Claude` on Windows, `$XDG_CONFIG_HOME/Claude` (or `~/.config/Claude`) on Linux — the executable name follows the platform (`claude`, `claude.exe`, `claude.cmd`), and both bundle layouts are probed, with and without the per-build hash directory. `VIBE_USAGE_CLAUDE_BIN` still overrides the whole search with an absolute path (bundled CLI `jwcrystal/vibe-usage`@955d83d).
+
 ## [0.5.8] - 2026-11-03
 
 ### Fixed
