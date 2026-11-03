@@ -7,22 +7,15 @@ All notable changes to this project are documented here.
 
 ## [0.5.10] - 2026-11-03
 
-### Fixed
-
-- Quotas: Claude's binary search now covers the installers' documented locations. The native installer keeps each version under `.local/share/claude/versions/` and only a launcher in `.local/bin`, and replacing that launcher is supported — so a launcher that was rewritten or removed used to hide a working install; the version directories are probed now, newest first. Windows also gets the per-platform manager trees, `%APPDATA%\npm` for npm's global shims and `%LOCALAPPDATA%\mise\shims`, instead of POSIX paths that could never match there. Every probe resolves `claude`, `claude.exe` or `claude.cmd` through the shared PATHEXT rule (bundled CLI `jwcrystal/vibe-usage`@26358cc).
-
-## [0.5.9] - 2026-11-03
+> `0.5.8` and `0.5.9` were cut locally for these same changes and never
+> distributed; their content is folded in here.
 
 ### Fixed
 
-- Quotas: the Claude Desktop build search now covers every platform instead of the macOS path it was written on. The data directory follows `claude-roots.js` — Application Support on macOS, `%APPDATA%\Claude` on Windows, `$XDG_CONFIG_HOME/Claude` (or `~/.config/Claude`) on Linux — the executable name follows the platform (`claude`, `claude.exe`, `claude.cmd`), and both bundle layouts are probed, with and without the per-build hash directory. `VIBE_USAGE_CLAUDE_BIN` still overrides the whole search with an absolute path (bundled CLI `jwcrystal/vibe-usage`@955d83d).
-
-## [0.5.8] - 2026-11-03
-
-### Fixed
-
-- Quotas: a Claude Code install that only lives inside Claude Desktop is now found. Desktop keeps its build at `claude-code/<version>/<build-hash>/claude.app`, one level deeper than the walk expected, so `findClaudeBinary` missed it: the product read as 未偵測到, the CLI probe (the route that also refreshes a lapsed login) never ran, and the card sat on 登入已過期 until the stored token lapsed. Both layouts are walked, newest version first (bundled CLI `jwcrystal/vibe-usage`@9a86407).
+- Quotas: a Claude Code install that only lives inside Claude Desktop is now found. Desktop keeps its build at `claude-code/<version>/<build-hash>/claude.app`, one level deeper than the walk expected, so the product read as 未偵測到, the CLI probe — the route that also refreshes a lapsed login — never ran, and the card sat on 登入已過期 until the stored token lapsed. Both layouts are walked, newest version first (bundled CLI `jwcrystal/vibe-usage`@9a86407).
 - Quotas: on macOS a login that lives only in the Keychain now counts as detected. Presence reads the Keychain item's attributes — no `-w`, no secret, no ACL prompt — instead of only `~/.claude/.credentials.json`, which Claude Code never writes on that platform, so a Keychain-only machine showed 未偵測到 while its OAuth route had a usable login (bundled CLI `jwcrystal/vibe-usage`@9a86407).
+- Quotas: that search covers every platform instead of the macOS path it was written on. The data directory follows `claude-roots.js` — Application Support on macOS, `%APPDATA%\Claude` on Windows, `$XDG_CONFIG_HOME/Claude` (or `~/.config/Claude`) on Linux — the executable name follows the platform (`claude`, `claude.exe`, `claude.cmd`), and both bundle layouts are probed, with and without the per-build hash directory. `VIBE_USAGE_CLAUDE_BIN` still overrides the whole search with an absolute path (bundled CLI `jwcrystal/vibe-usage`@955d83d).
+- Quotas: the search also covers the installers' documented locations. The native installer keeps each version under `.local/share/claude/versions/` and only a launcher in `.local/bin`, and replacing that launcher is supported — so a launcher that was rewritten or removed used to hide a working install; the version directories are probed now, newest first. Windows gets the per-platform manager trees, `%APPDATA%\npm` and `%LOCALAPPDATA%\mise\shims`, instead of POSIX paths that could never match there (bundled CLI `jwcrystal/vibe-usage`@26358cc).
 - Quota cards: Claude's 登入 button now finds the CLI the same way the probe does. It only searched PATH, so on a machine whose only Claude Code is Claude Desktop's it logged `detected binary=none` and did nothing; it now runs that binary by path, quoting the "Application Support" directory name.
 
 ## [0.5.7] - 2026-11-02
