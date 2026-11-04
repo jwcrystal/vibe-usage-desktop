@@ -11,7 +11,8 @@ Cross-platform desktop shell (macOS / Windows / Linux) for
   stacked lines (other platforms: same numbers in the tooltip)
 - Embedded server on `http://127.0.0.1:3456` (same data file
   `~/.vibe-usage-server/data.json`, same price table)
-- Closing the window keeps the app in the tray; quit via tray menu
+- Closing the window keeps the app in the tray; on macOS the Dock icon goes
+  with it and returns when the dashboard is reopened. Quit via the tray menu
 - If port 3456 is already in use (e.g. the launchd agent), the app just
   connects to the running server — no conflict, shared data
 - Version is shown in the dashboard header, the menu-bar popover and About

@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('vibeDesktop', {
   quotaOAuthLogin: (productId) => ipcRenderer.invoke('vibe-quota-oauth-login', String(productId)),
   quotaKeyLogin: (productId, key) => ipcRenderer.invoke('vibe-quota-key-login', String(productId), String(key)),
   openExternal: (url) => ipcRenderer.invoke('vibe-open-external', String(url)),
+  copyVersionInfo: () => ipcRenderer.invoke('vibe-copy-version'),
   openDashboard: () => ipcRenderer.send('vibe-open-dashboard'),
   onRangeChanged: (cb) => ipcRenderer.on('vibe-range-changed', (_e, r) => cb(r)),
 });

@@ -9,7 +9,8 @@
   dashboard 所選區間的費用與 Token 總計（其他平台：同樣數字顯示在 tooltip）
 - 內嵌伺服器跑在 `http://127.0.0.1:3456`（同一資料檔
   `~/.vibe-usage-server/data.json`、同一張價格表）
-- 關閉視窗後應用留在系統匣；要結束請由匣選單
+- 關閉視窗後應用留在系統匣；macOS 的 Dock 圖示也會一起消失，重新打開 dashboard
+  才回來。要結束請由匣選單
 - 若 port 3456 已被占用（例如 launchd agent），應用會直接連上執行中的伺服器——不衝突、共用資料
 - 版號顯示在 dashboard 標題列、選單列彈出面板與 About（桌面、內嵌 CLI、Electron）；
   `vibe-usage --version` 印出內嵌 CLI 自己的版號

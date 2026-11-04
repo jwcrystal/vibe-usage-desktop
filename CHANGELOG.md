@@ -5,6 +5,14 @@ All notable changes to this project are documented here.
 > Not maintained between `[0.1.5]` and `[0.5.5]`: entries for 0.1.6–0.5.4 are
 > missing and are not backfilled.
 
+## [0.5.13] - 2026-11-04
+
+### Fixed
+
+- About is a dark panel again instead of the native message box: the long `Electron · Chromium · Node` line wrapped mid-version and left an empty band above the buttons. The panel shows one version per row, the app icon, and a copy button that puts the same block on the clipboard.
+- macOS: closing the window with File > Close (Cmd+W) works again. The new application menu had dropped the File menu, so only the red button hid the window; Close and the View menu are restored.
+- macOS: closing the dashboard now also removes the Dock icon, so the idle app really does live only in the menu bar. Reopening the dashboard (tray menu, Dock, second launch) brings the Dock icon and the application menu back; the tray popover never shows one.
+
 ## [0.5.11] - 2026-11-04
 
 ### Added

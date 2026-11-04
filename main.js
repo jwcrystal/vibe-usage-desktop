@@ -9,6 +9,7 @@ import { loginCodex, refreshIfExpiring } from './codex-oauth.js';
 import { loginCommandcode, loginOpencodeGo } from './apikey-login.js';
 import { firstBinOnPath, openProductLogin } from './login-launcher.js';
 import { configureLogFile, logEvent } from './server/log.js';
+import { aboutHtml, aboutText } from './about.js';
 import { loadData, getDataPath } from './server/store.js';
 import { loadPrices, estimateCost } from './server/prices.js';
 
@@ -84,7 +85,10 @@ function createWindow() {
     },
   });
   win.loadURL(DASHBOARD_URL);
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => {
+    showInDock();
+    win.show();
+  });
   // Dashboard starts from its local default; hand it the canonical range as
   // soon as it can listen (it re-renders onto the broadcast).
   win.webContents.on('did-finish-load', () => {
@@ -94,9 +98,29 @@ function createWindow() {
     if (!app.isQuitting) {
       e.preventDefault();
       win.hide();
+      if (!aboutWin || !aboutWin.isVisible()) hideFromDock();
     }
   });
   win.on('closed', () => { win = null; });
+}
+
+// macOS menu-bar behaviour: the Dock icon exists only while an app window is
+// open. Closing the dashboard removes it (leaving the tray icon), reopening it
+// brings back the Dock icon and the application menu. The tray popover never
+// needs a Dock icon.
+function showInDock() {
+  if (process.platform === 'darwin' && app.dock && !app.dock.isVisible()) app.dock.show();
+}
+
+function hideFromDock() {
+  if (process.platform === 'darwin' && app.dock && app.dock.isVisible()) app.dock.hide();
+}
+
+function showDashboard() {
+  if (!win) createWindow();
+  showInDock();
+  win.show();
+  win.focus();
 }
 
 function createTray() {
@@ -119,7 +143,7 @@ function createTray() {
     tray.on('click', toggleTrayPanel);
     tray.on('right-click', () => tray.popUpContextMenu(trayMenu));
   } else {
-    tray.on('click', () => { if (!win) createWindow(); win.show(); win.focus(); });
+    tray.on('click', () => { showDashboard(); });
   }
 }
 
@@ -532,6 +556,13 @@ async function updateTrayTitle() {
   }
 }
 
+// About window's Copy button: the string is assembled in the main process, so
+// the page never has to know the CLI version itself.
+ipcMain.handle('vibe-copy-version', () => {
+  clipboard.writeText(aboutText(aboutValues()));
+  return true;
+});
+
 ipcMain.on('vibe-tray-range', (_event, r) => {
   const next = sanitizeTrayRange(r);
   if (!next) return;
@@ -552,9 +583,7 @@ function broadcastRange() {
 }
 
 ipcMain.on('vibe-open-dashboard', () => {
-  if (!win) createWindow();
-  win.show();
-  win.focus();
+  showDashboard();
 });
 
 // --- Tray popover panel (macOS) ---
@@ -975,7 +1004,7 @@ function refreshTrayMenu() {
   trayMenu = Menu.buildFromTemplate([
     {
       label: 'Open Dashboard',
-      click: () => { if (!win) createWindow(); win.show(); win.focus(); },
+      click: () => { showDashboard(); },
     },
     { type: 'separator' },
     { label: 'Quota Sync (applies on next daemon run)', enabled: false },
@@ -999,7 +1028,7 @@ function refreshTrayMenu() {
       click: (mi) => { if (mi.checked) installDaemon(); else uninstallDaemon(); },
     },
     { type: 'separator' },
-    { label: 'About Vibe Usage Desktop', click: () => { showAbout(); } },
+    { label: 'About Vibe Usage Desktop', click: () => { createAboutWindow(); } },
     {
       label: 'Quit',
       click: () => { app.isQuitting = true; app.quit(); },
@@ -1022,35 +1051,78 @@ function bundledCliVersion() {
   }
 }
 
-function versionInfo() {
-  const cli = bundledCliVersion();
-  return [
-    `版本 ${app.getVersion()}`,
-    cli ? `內嵌 CLI ${cli}` : null,
-    `Electron ${process.versions.electron} · Chromium ${process.versions.chrome} · Node ${process.versions.node}`,
-    'https://github.com/jwcrystal/vibe-usage-desktop',
-  ].filter(Boolean).join('\n');
+function aboutValues() {
+  return {
+    version: app.getVersion(),
+    cli: bundledCliVersion(),
+    electron: process.versions.electron,
+    chromium: process.versions.chrome,
+    node: process.versions.node,
+  };
 }
 
-async function showAbout() {
-  const { response } = await dialog.showMessageBox({
-    type: 'info',
-    title: 'About Vibe Usage Desktop',
-    message: 'Vibe Usage Desktop',
-    detail: versionInfo(),
-    buttons: ['複製版本資訊', '關閉'],
-    defaultId: 1,
-    cancelId: 1,
-    noLink: true,
+const ABOUT_W = 360;
+const ABOUT_H = 300;
+let aboutWin = null;
+
+// A small frameless panel rather than dialog.showMessageBox: the native alert
+// put the long "Electron · Chromium · Node" line in a narrow column (wrapped
+// mid-version) and left an empty band above the buttons.
+function createAboutWindow() {
+  if (aboutWin && !aboutWin.isDestroyed()) {
+    aboutWin.show();
+    aboutWin.focus();
+    return;
+  }
+  const values = aboutValues();
+  let iconDataUrl = '';
+  try {
+    iconDataUrl = nativeImage
+      .createFromPath(join(__dirname, 'build', 'icon.png'))
+      .resize({ width: 88 })
+      .toDataURL();
+  } catch { /* icon is optional */ }
+
+  aboutWin = new BrowserWindow({
+    width: ABOUT_W,
+    height: ABOUT_H,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    hasShadow: true,
+    webPreferences: {
+      preload: join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      sandbox: true,
+    },
   });
-  if (response === 0) clipboard.writeText(versionInfo());
+  aboutWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(aboutHtml({ ...values, iconDataUrl })));
+  aboutWin.once('ready-to-show', () => {
+    const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    aboutWin.setPosition(
+      Math.round(workArea.x + (workArea.width - ABOUT_W) / 2),
+      Math.round(workArea.y + (workArea.height - ABOUT_H) / 2),
+      false,
+    );
+    aboutWin.show();
+    aboutWin.focus();
+  });
+  aboutWin.on('closed', () => {
+    aboutWin = null;
+    if (!win || !win.isVisible()) hideFromDock();
+  });
 }
 
 // macOS needs a real application menu for About and the standard Edit
 // shortcuts; on the menu-on-tray platforms the default Electron menu (About
 // Electron, DevTools) is noise, so drop it and keep everything in the tray.
 function installApplicationMenu() {
-  const about = { label: 'About Vibe Usage Desktop', click: () => { showAbout(); } };
+  const about = { label: 'About Vibe Usage Desktop', click: () => { createAboutWindow(); } };
   if (process.platform !== 'darwin') {
     // Replace the default Electron menu (its Help > About shows Electron, not
     // this app) while keeping the standard Edit/View accelerators.
@@ -1078,7 +1150,11 @@ function installApplicationMenu() {
         { role: 'quit', label: 'Quit Vibe Usage Desktop' },
       ],
     },
+    // File > Close (Cmd+W) hides the window and leaves the app in the menu
+    // bar; the default Electron menu had it and the custom menu must keep it.
+    { label: 'File', submenu: [{ role: 'close' }] },
     { role: 'editMenu' },
+    { role: 'viewMenu' },
     { role: 'windowMenu' },
   ]));
 }
@@ -1384,12 +1460,11 @@ ipcMain.handle('vibe-quota-key-login', async (_event, productId, key) => {
 app.on('before-quit', () => { app.isQuitting = true; });
 
 app.on('second-instance', () => {
-  if (win) { win.show(); win.focus(); }
+  showDashboard();
 });
 
 app.on('activate', () => {
-  if (!win) createWindow();
-  else { win.show(); win.focus(); }
+  showDashboard();
 });
 
 app.on('window-all-closed', (e) => {
