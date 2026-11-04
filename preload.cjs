@@ -1,10 +1,18 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+// Passed through webPreferences.additionalArguments by main.js. Reading it here
+// (instead of a synchronous IPC round trip) cannot block the page load.
+const VERSION_PREFIX = '--vibe-app-version=';
+const versionArg = process.argv.find((arg) => arg.startsWith(VERSION_PREFIX));
+
 // Exposed to the dashboard at http://127.0.0.1:<port> (loopback only).
 // The dashboard feature-detects this: in a plain browser (standalone server)
 // window.vibeDesktop is undefined and refresh stays display-only, the quota
 // 登入 button copies the login command instead of opening a terminal.
 contextBridge.exposeInMainWorld('vibeDesktop', {
+  // Desktop build version; the dashboard renders it as a header badge and
+  // hides the badge when the page is opened in a plain browser.
+  version: versionArg ? versionArg.slice(VERSION_PREFIX.length) : undefined,
   syncNow: () => ipcRenderer.invoke('vibe-sync'),
   setRange: (range) => ipcRenderer.send('vibe-tray-range', range),
   quotaLogin: (productId) => ipcRenderer.invoke('vibe-quota-login', String(productId)),

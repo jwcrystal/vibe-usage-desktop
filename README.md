@@ -14,6 +14,9 @@ Cross-platform desktop shell (macOS / Windows / Linux) for
 - Closing the window keeps the app in the tray; quit via tray menu
 - If port 3456 is already in use (e.g. the launchd agent), the app just
   connects to the running server — no conflict, shared data
+- Version is shown in the dashboard header, the menu-bar popover and About
+  (desktop, bundled CLI, Electron); `vibe-usage --version` prints the bundled
+  CLI's own version
 
 ## Platform notes
 

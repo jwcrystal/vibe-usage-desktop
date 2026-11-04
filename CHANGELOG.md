@@ -5,6 +5,13 @@ All notable changes to this project are documented here.
 > Not maintained between `[0.1.5]` and `[0.5.5]`: entries for 0.1.6–0.5.4 are
 > missing and are not backfilled.
 
+## [0.5.11] - 2026-11-04
+
+### Added
+
+- Version is now visible in the app: a `v0.5.11` badge beside the dashboard title, a line under the menu-bar popover, the version in the tray tooltip, and an About item in the tray menu (macOS also gets a proper application menu). About lists the desktop build, the bundled CLI version and the Electron/Chromium/Node versions, and copies that block for bug reports. The dashboard badge is desktop-only — the same page opened from the standalone server in a plain browser is unchanged.
+- The bundled CLI is spawned with `VIBE_USAGE_SURFACE_VERSION` set to the app version, so synced usage records report the desktop build they came from. `vibe-usage --version` still prints the CLI's own version (0.13.x), which About shows separately.
+
 ## [0.5.10] - 2026-11-03
 
 > `0.5.8` and `0.5.9` were cut locally for these same changes and never

@@ -11,6 +11,8 @@
   `~/.vibe-usage-server/data.json`、同一張價格表）
 - 關閉視窗後應用留在系統匣；要結束請由匣選單
 - 若 port 3456 已被占用（例如 launchd agent），應用會直接連上執行中的伺服器——不衝突、共用資料
+- 版號顯示在 dashboard 標題列、選單列彈出面板與 About（桌面、內嵌 CLI、Electron）；
+  `vibe-usage --version` 印出內嵌 CLI 自己的版號
 
 ## 平台差異
 

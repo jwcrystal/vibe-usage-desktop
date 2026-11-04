@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, dialog, nativeImage, ipcMain, shell, screen } from 'electron';
+import { app, BrowserWindow, Tray, Menu, dialog, nativeImage, ipcMain, shell, screen, clipboard } from 'electron';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, mkdirSync, writeFileSync, chmodSync, watch, statSync } from 'node:fs';
@@ -78,7 +78,10 @@ function createWindow() {
     title: 'Vibe Usage Desktop',
     icon: join(__dirname, 'build', 'icon.png'),
     show: false,
-    webPreferences: { preload: join(__dirname, 'preload.cjs') },
+    webPreferences: {
+      preload: join(__dirname, 'preload.cjs'),
+      additionalArguments: [`--vibe-app-version=${app.getVersion()}`],
+    },
   });
   win.loadURL(DASHBOARD_URL);
   win.once('ready-to-show', () => win.show());
@@ -101,7 +104,7 @@ function createTray() {
     .createFromPath(join(__dirname, 'build', 'icon.png'))
     .resize({ width: 16, height: 16 });
   tray = new Tray(icon);
-  tray.setToolTip('Vibe Usage Desktop');
+  tray.setToolTip(`Vibe Usage Desktop ${app.getVersion()}`);
   refreshTrayMenu();
   updateTrayTitle();
   // Data keeps growing while the window is hidden (the daemon syncs), so
@@ -490,8 +493,10 @@ async function updateTrayTitle() {
   const unused = tokens === 0;
   const hit = trayCacheStats(buckets);
   const trend = trayRangeSeries(prices);
-  tray.setToolTip(unused ? 'Vibe Usage Desktop' : `Vibe Usage Desktop — ${money} · ${tok}`);
+  const versionLabel = `Vibe Usage Desktop ${app.getVersion()}`;
+  tray.setToolTip(unused ? versionLabel : `${versionLabel} — ${money} · ${tok}`);
   pushTrayPanel({
+    version: app.getVersion(),
     label: trayRangeLabel(),
     cost: money,
     tok,
@@ -561,7 +566,7 @@ ipcMain.on('vibe-open-dashboard', () => {
 // dashboard never disagree. The page itself is inline — same pattern as
 // TRAY_RENDER_PAGE, no new files.
 const PANEL_W = 320;
-const PANEL_H = 520;
+const PANEL_H = 540;
 
 // Palette mirrors server/ui/dashboard.html :root (dark-only) — keep in sync,
 // same rule as trayMoney/trayFmtTok.
@@ -631,6 +636,7 @@ const PANEL_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
     background: transparent; color: #a1a1a1; font-size: 12px; cursor: pointer; white-space: nowrap;
   }
   #sync:disabled { opacity: .5; cursor: default; }
+  #ver { text-align: center; font-size: 9px; color: #6e6e6e; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
 </style></head><body><div id="card">
   <div class="label" id="label"></div>
   <div id="chips">
@@ -655,6 +661,7 @@ const PANEL_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
     <button id="sync">更新</button>
     <button id="open">Open Dashboard</button>
   </div>
+  <div id="ver">Vibe Usage Desktop <span class="ver-num"></span></div>
 </div><script>
   function renderPanel(o) {
     document.getElementById('label').textContent = o.label;
@@ -680,6 +687,9 @@ const PANEL_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
     const asof = document.getElementById('asof');
     asof.hidden = !o.asOf;
     if (o.asOf) asof.textContent = '更新於 ' + o.asOf;
+    const ver = document.getElementById('ver');
+    ver.hidden = !o.version;
+    if (o.version) document.querySelector('#ver .ver-num').textContent = o.version;
     const bars = document.getElementById('bars');
     bars.textContent = '';
     const max = Math.max(...o.series.map((x) => x.v), 0.0001);
@@ -824,7 +834,12 @@ function createTrayPanel() {
     fullscreenable: false,
     skipTaskbar: true,
     hasShadow: true,
-    webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true },
+    webPreferences: {
+      preload: join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      sandbox: true,
+      additionalArguments: [`--vibe-app-version=${app.getVersion()}`],
+    },
   });
   // Stay above fullscreen apps and on every Space, like a real NSPopover.
   panel.setAlwaysOnTop(true, 'screen-saver');
@@ -984,6 +999,7 @@ function refreshTrayMenu() {
       click: (mi) => { if (mi.checked) installDaemon(); else uninstallDaemon(); },
     },
     { type: 'separator' },
+    { label: 'About Vibe Usage Desktop', click: () => { showAbout(); } },
     {
       label: 'Quit',
       click: () => { app.isQuitting = true; app.quit(); },
@@ -992,6 +1008,79 @@ function refreshTrayMenu() {
   // macOS pops the cached menu on right-click (see createTray); elsewhere the
   // menu stays attached so plain clicks open it.
   if (process.platform !== 'darwin') tray.setContextMenu(trayMenu);
+}
+
+// --- About: the one place that answers "which build is this?" ---
+// package.json is the single source of truth; the packaged app exposes it as
+// app.getVersion(). The bundled CLI carries upstream's numbering (0.13.x), so
+// it is reported separately instead of being confused with the app build.
+function bundledCliVersion() {
+  try {
+    return JSON.parse(readFileSync(join(__dirname, 'cli', 'package.json'), 'utf-8')).version || null;
+  } catch {
+    return null;
+  }
+}
+
+function versionInfo() {
+  const cli = bundledCliVersion();
+  return [
+    `版本 ${app.getVersion()}`,
+    cli ? `內嵌 CLI ${cli}` : null,
+    `Electron ${process.versions.electron} · Chromium ${process.versions.chrome} · Node ${process.versions.node}`,
+    'https://github.com/jwcrystal/vibe-usage-desktop',
+  ].filter(Boolean).join('\n');
+}
+
+async function showAbout() {
+  const { response } = await dialog.showMessageBox({
+    type: 'info',
+    title: 'About Vibe Usage Desktop',
+    message: 'Vibe Usage Desktop',
+    detail: versionInfo(),
+    buttons: ['複製版本資訊', '關閉'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  if (response === 0) clipboard.writeText(versionInfo());
+}
+
+// macOS needs a real application menu for About and the standard Edit
+// shortcuts; on the menu-on-tray platforms the default Electron menu (About
+// Electron, DevTools) is noise, so drop it and keep everything in the tray.
+function installApplicationMenu() {
+  const about = { label: 'About Vibe Usage Desktop', click: () => { showAbout(); } };
+  if (process.platform !== 'darwin') {
+    // Replace the default Electron menu (its Help > About shows Electron, not
+    // this app) while keeping the standard Edit/View accelerators.
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      { role: 'fileMenu' },
+      { role: 'editMenu' },
+      { role: 'viewMenu' },
+      { role: 'windowMenu' },
+      { label: 'Help', submenu: [about] },
+    ]));
+    return;
+  }
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: 'Vibe Usage Desktop',
+      submenu: [
+        about,
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit', label: 'Quit Vibe Usage Desktop' },
+      ],
+    },
+    { role: 'editMenu' },
+    { role: 'windowMenu' },
+  ]));
 }
 
 // --- vibe-usage daemon service management (delegates to the CLI) ---
@@ -1045,7 +1134,16 @@ const bundledCli = () => {
   // asarUnpack) because ELECTRON_RUN_AS_NODE cannot execute scripts inside the
   // asar archive — translate the asar path Electron reports to the real one.
   bin = bin.replace(`${sep}app.asar${sep}`, `${sep}app.asar.unpacked${sep}`);
-  return existsSync(bin) ? { cmd: process.execPath, pre: [bin], env: { ELECTRON_RUN_AS_NODE: '1' } } : null;
+  // client-meta reports VIBE_USAGE_SURFACE_VERSION as surfaceVersion, so the
+  // server records which desktop build produced the usage; the CLI keeps its
+  // own 0.13.x version for `--version`.
+  return existsSync(bin)
+    ? {
+        cmd: process.execPath,
+        pre: [bin],
+        env: { ELECTRON_RUN_AS_NODE: '1', VIBE_USAGE_SURFACE_VERSION: app.getVersion() },
+      }
+    : null;
 };
 
 async function findDaemonCli() {
@@ -1281,6 +1379,10 @@ ipcMain.handle('vibe-quota-key-login', async (_event, productId, key) => {
   }
 });
 
+// Every quit path (menu role, Cmd+Q, dock) must mark the close as a real quit;
+// the window's close handler otherwise hides it and keeps the app in the tray.
+app.on('before-quit', () => { app.isQuitting = true; });
+
 app.on('second-instance', () => {
   if (win) { win.show(); win.focus(); }
 });
@@ -1308,12 +1410,19 @@ if (IS_SMOKE) {
       console.log(`[smoke] GET / -> ${res.status}, html=${htmlOk}`);
       const probe = new BrowserWindow({
         show: false,
-        webPreferences: { preload: join(__dirname, 'preload.cjs') },
+        webPreferences: {
+          preload: join(__dirname, 'preload.cjs'),
+          additionalArguments: [`--vibe-app-version=${app.getVersion()}`],
+        },
       });
       await probe.loadURL(DASHBOARD_URL);
       const bridgeOk = await probe.webContents.executeJavaScript('typeof window.vibeDesktop?.syncNow === "function"');
-      console.log(`[smoke] sandboxed preload sync bridge=${bridgeOk}`);
-      app.exit(htmlOk && bridgeOk ? 0 : 1);
+      const bridgeVersion = await probe.webContents.executeJavaScript('window.vibeDesktop?.version');
+      const badgeOk = await probe.webContents.executeJavaScript('document.getElementById("ver")?.hidden === false');
+      const versionOk = bridgeVersion === app.getVersion();
+      console.log(`[smoke] sandboxed preload sync bridge=${bridgeOk} version=${bridgeVersion} (${versionOk ? 'ok' : 'mismatch, expected ' + app.getVersion()})`);
+      console.log(`[smoke] dashboard version badge=${badgeOk}`);
+      app.exit(htmlOk && bridgeOk && versionOk && badgeOk ? 0 : 1);
     } catch (err) {
       console.error('[smoke] failed:', err);
       app.exit(1);
@@ -1322,6 +1431,7 @@ if (IS_SMOKE) {
 } else {
   app.whenReady().then(async () => {
     await startServer();
+    installApplicationMenu();
     createTray();
     createWindow();
     offerDaemonInstall();

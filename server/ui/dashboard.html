@@ -33,6 +33,9 @@
   h1 { font-size: 18px; font-weight: 700; }
   h1 .dot { color: var(--accent); }
   .sub { color: var(--text3); font-size: 11px; }
+  /* Build badge: only the desktop shell knows its own version (preload
+     bridge); a plain browser shows the header exactly as before. */
+  .ver { margin-left: 8px; padding: 1px 7px; border: 1px solid var(--border); border-radius: 999px; color: var(--text3); font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .ranges { display: flex; gap: 6px; }
   .ranges button {
     background: transparent; color: var(--text2); border: 1px solid var(--border);
@@ -332,7 +335,7 @@
 <body>
   <header>
     <div>
-      <h1><span class="dot">●</span> vibe-usage <span class="sub">本地 dashboard</span></h1>
+      <h1><span class="dot">●</span> vibe-usage <span class="sub">本地 dashboard</span><span class="ver" id="ver" hidden></span></h1>
       <div class="sub" id="meta"></div>
     </div>
     <div class="controls">
@@ -363,6 +366,15 @@
 // API key injected server-side (localhost only).
 const API_KEY = __VIBE_API_KEY__;
 const API = '/api/usage';
+
+// The desktop shell exposes its build version through the preload bridge; the
+// standalone server has no bridge, so the badge stays hidden there.
+if (window.vibeDesktop?.version) {
+  const ver = document.getElementById('ver');
+  ver.textContent = 'v' + window.vibeDesktop.version;
+  ver.title = 'Vibe Usage Desktop ' + window.vibeDesktop.version;
+  ver.hidden = false;
+}
 
 let data = null;
 // Signature of the last-rendered payload; load() skips the full #app rebuild
