@@ -66,6 +66,7 @@
     "claude-haiku-4-5-20251001": { "input": 1, "output": 5, "cacheReadMtok": 0.1, "cacheWriteMtok": 1.25, "vendor": "anthropic", "source": "official" },
     "claude-sonnet-5": { "input": 2, "output": 10, "cacheReadMtok": 0.2, "cacheWriteMtok": 2.5, "vendor": "anthropic", "source": "official", "note": "intro $2/$10 through 2026-08-31, then $3/$15 (update 2026-09-01)" },
     "claude-opus-5": { "input": 5, "output": 25, "cacheReadMtok": 0.5, "cacheWriteMtok": 6.25, "vendor": "anthropic", "source": "official" },
+    "claude-haiku-5-5": { "input": 0.1, "output": 0.5, "cacheReadMtok": 0.01, "cacheWriteMtok": 0.125, "vendor": "anthropic", "source": "official", "note": "prompts >100K tokens: 0.5/2.5, cache read 0.05, cache write 0.625 (table prices the ≤100K tier)" },
     "claude-fable-5": { "input": 10, "output": 50, "cacheReadMtok": 1, "cacheWriteMtok": 12.5, "vendor": "anthropic", "source": "official" },
     "claude-mythos-5": { "input": 10, "output": 50, "cacheReadMtok": 1, "cacheWriteMtok": 12.5, "vendor": "anthropic", "source": "official" },
     "claude-opus-4-7": { "input": 5, "output": 25, "cacheReadMtok": 0.5, "cacheWriteMtok": 6.25, "vendor": "anthropic", "source": "official" },

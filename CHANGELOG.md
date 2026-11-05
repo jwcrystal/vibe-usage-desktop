@@ -5,6 +5,12 @@ All notable changes to this project are documented here.
 > Not maintained between `[0.1.5]` and `[0.5.5]`: entries for 0.1.6–0.5.4 are
 > missing and are not backfilled.
 
+## [0.5.14] - 2026-11-05
+
+### Fixed
+
+- Pricing: Claude Haiku 5.5 (`claude-haiku-5-5`) was missing from the price table, so its usage was flagged 未定價 and left out of cost totals. Added Anthropic's official price for prompts ≤ 100K tokens — $0.10 / MTok input, $0.50 / MTok output, cache read $0.01, cache write $0.125 (the > 100K tier is recorded in the entry's `note`). Vendored server from `vibe-usage-local-server@0.3.5`.
+
 ## [0.5.13] - 2026-11-04
 
 ### Fixed
