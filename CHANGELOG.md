@@ -5,6 +5,12 @@ All notable changes to this project are documented here.
 > Not maintained between `[0.1.5]` and `[0.5.5]`: entries for 0.1.6–0.5.4 are
 > missing and are not backfilled.
 
+## [0.5.15] - 2026-11-10
+
+### Fixed
+
+- Pricing: Claude Fable 5.2 (`claude-fable-5-2`) was missing from the price table, so its usage was flagged 未定價 and left out of cost totals. Added Anthropic's official price — $8 / MTok input, $40 / MTok output, cache read $0.20, cache write $10. Vendored server from `vibe-usage-local-server@0.3.6`.
+
 ## [0.5.14] - 2026-11-05
 
 ### Fixed

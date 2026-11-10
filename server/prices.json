@@ -68,6 +68,7 @@
     "claude-opus-5": { "input": 5, "output": 25, "cacheReadMtok": 0.5, "cacheWriteMtok": 6.25, "vendor": "anthropic", "source": "official" },
     "claude-haiku-5-5": { "input": 0.1, "output": 0.5, "cacheReadMtok": 0.01, "cacheWriteMtok": 0.125, "vendor": "anthropic", "source": "official", "note": "prompts >100K tokens: 0.5/2.5, cache read 0.05, cache write 0.625 (table prices the ≤100K tier)" },
     "claude-fable-5": { "input": 10, "output": 50, "cacheReadMtok": 1, "cacheWriteMtok": 12.5, "vendor": "anthropic", "source": "official" },
+    "claude-fable-5-2": { "input": 8, "output": 40, "cacheReadMtok": 0.2, "cacheWriteMtok": 10, "vendor": "anthropic", "source": "official" },
     "claude-mythos-5": { "input": 10, "output": 50, "cacheReadMtok": 1, "cacheWriteMtok": 12.5, "vendor": "anthropic", "source": "official" },
     "claude-opus-4-7": { "input": 5, "output": 25, "cacheReadMtok": 0.5, "cacheWriteMtok": 6.25, "vendor": "anthropic", "source": "official" },
     "claude-opus-4-8": { "input": 5, "output": 25, "cacheReadMtok": 0.5, "cacheWriteMtok": 6.25, "vendor": "anthropic", "source": "official" },
