@@ -333,6 +333,22 @@
     .daily { gap: 2px; }
     .heat td.c { width: 3.6%; }
   }
+
+  /* Metric grid: the four primary cards keep their 2×2 block on the left
+     (wider), the six detail/efficiency cards fill a 3×2 block on the right.
+     Activity keeps its own five-column row. */
+  .metrics-row { display: grid; grid-template-columns: 1.4fr 1.6fr; gap: 12px; margin-bottom: 12px; }
+  .cards.primary { grid-template-columns: 1fr 1fr; margin-bottom: 0; }
+  .cards.detail { grid-template-columns: repeat(3, 1fr); margin-bottom: 0; }
+  .cards.activity { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  @media (max-width: 900px) {
+    .metrics-row { grid-template-columns: 1fr; }
+    .cards.activity { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  }
+  @media (max-width: 480px) {
+    .cards.detail { grid-template-columns: 1fr 1fr; }
+    .cards.activity { grid-template-columns: 1fr 1fr; gap: 8px; }
+  }
 </style>
 </head>
 <body>
@@ -405,6 +421,8 @@ const $ = (s) => document.querySelector(s);
 // Adaptive precision: sub-dollar amounts keep 4 decimals so sub-cent costs
 // don't collapse to "$0.00"; >= $1 uses standard 2 decimals.
 const money = (v) => v == null ? '—' : '$' + (v >= 1 ? v.toFixed(2) : v.toFixed(4));
+// Efficiency rates live under a dollar and four decimals read as noise.
+const moneySmall = (v) => v == null ? '—' : '$' + (v >= 1 ? v.toFixed(2) : v.toFixed(3));
 // Compact token counts, K→M→B→T (mainstream dashboard ladder). Values that
 // would display as "1000K"-style rollovers bump to the next tier (CLDR behavior).
 const fmtTok = (n) => {
@@ -639,6 +657,8 @@ function render() {
     { l: '輸出 Token', v: fmtTok(cur.output), d: D(cur.output, pr.output) },
     { l: '推理 Token', v: fmtTok(cur.reasoning), d: D(cur.reasoning, pr.reasoning) },
     { l: '快取寫 Token', v: fmtTok(cur.cacheWrite), d: D(cur.cacheWrite, pr.cacheWrite), help: '5m 與 1h 快取寫分開計價', hint: '5m ' + fmtTok(cur.cacheWrite5m) + ' · 1h ' + fmtTok(cur.cacheWrite1h) },
+    { l: '每 1M 成本', v: moneySmall(cur.total > 0 ? cur.cost / (cur.total / 1e6) : null), help: '成本 ÷ 總 Token', hint: '成本 ÷ 總 Token' },
+    { l: '單會話成本', v: moneySmall(cur.sessions > 0 ? cur.cost / cur.sessions : null), help: '成本 ÷ 會話數', hint: '成本 ÷ 會話數' },
   ];
   const activityCards = [
     { l: 'Active 時長', v: fmtH(cur.active), accent: true, d: D(cur.active, pr.active), help: ACTIVE_HELP },
@@ -667,7 +687,11 @@ function render() {
     unpricedHtml +
     quotasHtml +
     filterBar(raw) +
-    '<div class="cards">' + [...primaryCards, ...detailCards, ...activityCards].map(cardHtml).join('') + '</div>' +
+    '<div class="metrics-row">' +
+    '<div class="cards primary">' + primaryCards.map(cardHtml).join('') + '</div>' +
+    '<div class="cards detail">' + detailCards.map(cardHtml).join('') + '</div>' +
+    '</div>' +
+    '<div class="cards activity">' + activityCards.map(cardHtml).join('') + '</div>' +
     '<div class="analytics-row">' + trendPanel(buckets) + heatmapPanel(buckets) + '</div>' +
     '<div class="donuts" data-reveal style="--d:.2s">' +
     donutCard('model', '按模型', buckets) +
