@@ -354,6 +354,11 @@ function trayRangeSeries(prices) {
 // aggregated tail row. Token counting mirrors the tray title (all token
 // classes); formatting reuses trayFmtTok/trayMoney so panel and tray strings
 // agree. Trailing -20yymmdd date suffixes are stripped from model names.
+function bucketTokens(b) {
+  return (b.inputTokens || 0) + (b.outputTokens || 0) + (b.reasoningOutputTokens || 0)
+    + (b.cachedInputTokens || 0) + (b.cacheCreation5mTokens || 0) + (b.cacheCreation1hTokens || 0);
+}
+
 function trayModelBreakdown(buckets, prices) {
   const byModel = new Map();
   let total = 0;
@@ -369,7 +374,7 @@ function trayModelBreakdown(buckets, prices) {
       e.cost += c;
       total += c;
     }
-    e.tokens += (b.inputTokens || 0) + (b.outputTokens || 0) + (b.reasoningOutputTokens || 0) + (b.cachedInputTokens || 0);
+    e.tokens += bucketTokens(b);
   }
   // Top 3 + an aggregated "其他" row: the tail is rarely decision-relevant
   // (top 3 usually cover ~90%), and 6 rows turned the quick panel into a
@@ -507,7 +512,7 @@ async function updateTrayTitle() {
   for (const b of buckets) {
     const c = estimateCost(b, prices);
     if (c != null) cost += c;
-    tokens += (b.inputTokens || 0) + (b.outputTokens || 0) + (b.reasoningOutputTokens || 0) + (b.cachedInputTokens || 0);
+    tokens += bucketTokens(b);
   }
   const money = trayMoney(cost);
   const tok = trayFmtTok(tokens);

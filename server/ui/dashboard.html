@@ -190,6 +190,7 @@
   .stack-seg.output { background: #f5f5f5; }
   .stack-seg.input { background: #969696; }
   .stack-seg.cache { background: #6b7280; }
+  .stack-seg.write { background: #4b5563; }
   .stack-seg.hit { background: #33cc99; }
   /* Hit-rate overlay: SVG line chart above the label row (bottom 17px = 12px lbl + 5px gap). */
   .hit-line { position: absolute; left: 0; right: 0; top: 0; bottom: 17px; width: 100%; height: calc(100% - 17px); pointer-events: none; }
@@ -532,8 +533,9 @@ function sumMetrics(buckets, sess, win) {
     total: buckets.reduce((s, b) => s + computeTotal(b), 0),
     input: buckets.reduce((s, b) => s + (b.inputTokens || 0), 0),
     output: buckets.reduce((s, b) => s + (b.outputTokens || 0), 0),
+    reasoning: buckets.reduce((s, b) => s + (b.reasoningOutputTokens || 0), 0),
     cached: buckets.reduce((s, b) => s + (b.cachedInputTokens || 0), 0),
-    cacheWrite: buckets.reduce((s, b) => s + (b.cacheCreation5mTokens || 0), 0),
+    cacheWrite: buckets.reduce((s, b) => s + (b.cacheCreation5mTokens || 0) + (b.cacheCreation1hTokens || 0), 0),
     active: sess.reduce((s, x) => s + (x.activeSeconds || 0), 0),
     duration: sess.reduce((s, x) => s + clippedDuration(x, win), 0),
     sessions: sess.length,
@@ -622,6 +624,7 @@ function render() {
     { l: '總 Token', v: fmtTok(cur.total), d: D(cur.total, pr.total) },
     { l: '輸入 Token', v: fmtTok(cur.input), d: D(cur.input, pr.input) },
     { l: '輸出 Token', v: fmtTok(cur.output), d: D(cur.output, pr.output) },
+    { l: '推理 Token', v: fmtTok(cur.reasoning), d: D(cur.reasoning, pr.reasoning) },
     { l: '緩存讀 Token', v: fmtTok(cur.cached), d: D(cur.cached, pr.cached) },
     { l: '緩存寫 Token', v: fmtTok(cur.cacheWrite), d: D(cur.cacheWrite, pr.cacheWrite) },
     { l: '命中率', v: curHit == null ? '—' : (curHit * 100).toFixed(1) + '%', d: hitDelta },
@@ -894,7 +897,8 @@ function quotaPanel(snapshots, mode, manage) {
 }
 
 function computeTotal(b) {
-  return (b.inputTokens || 0) + (b.outputTokens || 0) + (b.reasoningOutputTokens || 0) + (b.cachedInputTokens || 0);
+  return (b.inputTokens || 0) + (b.outputTokens || 0) + (b.reasoningOutputTokens || 0) +
+    (b.cachedInputTokens || 0) + (b.cacheCreation5mTokens || 0) + (b.cacheCreation1hTokens || 0);
 }
 
 // Human label for the active range (used in meta + prev-window delta).
@@ -973,12 +977,13 @@ function trendPanel(buckets) {
   for (const b of buckets) {
     const key = grain === 'hour' ? localHour(b.bucketStart) : grain === 'week' ? localWeek(b.bucketStart) : localDay(b.bucketStart);
     if (key == null || key < 0) continue;
-    const value = grouped.get(key) || { cost: 0, output: 0, input: 0, cache: 0 };
+    const value = grouped.get(key) || { cost: 0, output: 0, input: 0, cache: 0, write: 0 };
     grouped.set(key, {
       cost: value.cost + (b.estimatedCost || 0),
       output: value.output + (b.outputTokens || 0) + (b.reasoningOutputTokens || 0),
       input: value.input + (b.inputTokens || 0),
       cache: value.cache + (b.cachedInputTokens || 0),
+      write: value.write + (b.cacheCreation5mTokens || 0) + (b.cacheCreation1hTokens || 0),
     });
   }
   // Keep the selected range visible even when filters leave data on only one
@@ -991,7 +996,7 @@ function trendPanel(buckets) {
     end.setHours(0, 0, 0, 0);
     while (cursor <= end) {
       const key = localDay(cursor.toISOString());
-      if (key && !grouped.has(key)) grouped.set(key, { cost: 0, output: 0, input: 0, cache: 0 });
+      if (key && !grouped.has(key)) grouped.set(key, { cost: 0, output: 0, input: 0, cache: 0, write: 0 });
       cursor.setDate(cursor.getDate() + 1);
     }
   }
@@ -1003,19 +1008,19 @@ function trendPanel(buckets) {
     end.setHours(0, 0, 0, 0);
     while (cursor <= end) {
       const key = localDay(cursor.toISOString());
-      if (key && !grouped.has(key)) grouped.set(key, { cost: 0, output: 0, input: 0, cache: 0 });
+      if (key && !grouped.has(key)) grouped.set(key, { cost: 0, output: 0, input: 0, cache: 0, write: 0 });
       cursor.setDate(cursor.getDate() + 7);
     }
   }
   if (grain === 'hour') {
     for (let h = 0; h < 24; h += 1) {
-      if (!grouped.has(h)) grouped.set(h, { cost: 0, output: 0, input: 0, cache: 0 });
+      if (!grouped.has(h)) grouped.set(h, { cost: 0, output: 0, input: 0, cache: 0, write: 0 });
     }
   }
   const entries = [...grouped.entries()].sort((a, b) => grain === 'hour'
     ? a[0] - b[0]
     : (a[0] < b[0] ? -1 : 1));
-  const totalOf = (value) => value.output + value.input + value.cache;
+  const totalOf = (value) => value.output + value.input + value.cache + value.write;
   const max = Math.max(1, ...entries.map(([, value]) => totalOf(value)));
   const TRACK = 120;
   // Cache hit rate for one grouped bucket; null when the bucket had no input at all.
@@ -1045,14 +1050,17 @@ function trendPanel(buckets) {
         '<div class="tip-row total"><span>總 Token</span><span class="tip-value">' + fmtTok(total) + '</span></div>' +
         '<div class="tip-row"><i class="tip-dot" style="background:#f5f5f5"></i><span>輸出</span><span class="tip-value">' + fmtTok(value.output) + '</span></div>' +
         '<div class="tip-row"><i class="tip-dot" style="background:#969696"></i><span>輸入</span><span class="tip-value">' + fmtTok(value.input) + '</span></div>' +
-        '<div class="tip-row"><i class="tip-dot" style="background:#6b7280"></i><span>緩存</span><span class="tip-value">' + fmtTok(value.cache) + '</span></div>' +
+        '<div class="tip-row"><i class="tip-dot" style="background:#6b7280"></i><span>緩存讀</span><span class="tip-value">' + fmtTok(value.cache) + '</span></div>' +
+        '<div class="tip-row"><i class="tip-dot" style="background:#4b5563"></i><span>緩存寫</span><span class="tip-value">' + fmtTok(value.write) + '</span></div>' +
         '<div class="tip-row"><i class="tip-dot" style="background:#33cc99"></i><span>命中率</span><span class="tip-value">' + ratePct + '</span></div>' +
         '<div class="tip-row cost"><span>費用</span><span class="tip-value">' + money(value.cost) + '</span></div>';
       const outputH = value.output / max * TRACK;
       const inputH = value.input / max * TRACK;
       const cacheH = value.cache / max * TRACK;
+      const writeH = value.write / max * TRACK;
       barHtml = '<div class="stack-bar">' +
         (value.cache ? '<div class="stack-seg cache" style="height:' + Math.max(.5, cacheH) + 'px"></div>' : '') +
+        (value.write ? '<div class="stack-seg write" style="height:' + Math.max(.5, writeH) + 'px"></div>' : '') +
         (value.input ? '<div class="stack-seg input" style="height:' + Math.max(.5, inputH) + 'px"></div>' : '') +
         (value.output ? '<div class="stack-seg output" style="height:' + Math.max(.5, outputH) + 'px"></div>' : '') +
         '</div>';
@@ -1083,7 +1091,7 @@ function trendPanel(buckets) {
   }
   const legend = trendMode === 'hit'
     ? '<div class="trend-legend"><span><i style="background:#33cc99"></i>命中率</span></div>'
-    : '<div class="trend-legend"><span><i style="background:#f5f5f5"></i>輸出</span><span><i style="background:#969696"></i>輸入</span><span><i style="background:#6b7280"></i>緩存</span></div>';
+    : '<div class="trend-legend"><span><i style="background:#f5f5f5"></i>輸出</span><span><i style="background:#969696"></i>輸入</span><span><i style="background:#6b7280"></i>緩存讀</span><span><i style="background:#4b5563"></i>緩存寫</span></div>';
   const toggle = '<div class="toggle">' +
     '<button data-tmode="tokens" class="' + (trendMode === 'tokens' ? 'active' : '') + '">Token</button>' +
     '<button data-tmode="hit" class="' + (trendMode === 'hit' ? 'active' : '') + '">命中率</button>' +
@@ -1211,8 +1219,9 @@ const REC_COLS = [
   { key: 'model', label: '模型' },
   { key: 'inputTokens', label: '輸入 token' },
   { key: 'outputTokens', label: '輸出 token' },
+  { key: 'reasoningOutputTokens', label: '推理 token' },
   { key: 'cachedInputTokens', label: '緩存讀' },
-  { key: 'cacheCreation5mTokens', label: '緩存寫' },
+  { key: 'cacheWrite', label: '緩存寫' },
   { key: 'cost', label: '費用' },
 ];
 function recValue(b, key) {
@@ -1222,6 +1231,7 @@ function recValue(b, key) {
     // same-bucket rows share bucketStart, and insertion order would otherwise
     // contradict the ↓ arrow when their call times differ.
     case 'bucketStart': return new Date(b.lastCallAt || b.bucketStart).getTime();
+    case 'cacheWrite': return (b.cacheCreation5mTokens ?? 0) + (b.cacheCreation1hTokens ?? 0);
     default: return b[key] ?? 0;
   }
 }
@@ -1239,6 +1249,11 @@ function sortedRecords(buckets) {
 function recRowHtml(b) {
   const cost = b.estimatedCost == null;
   const hostVal = recShowHost ? esc(b.hostname || '—') : '•••';
+  const write5m = b.cacheCreation5mTokens || 0;
+  const write1h = b.cacheCreation1hTokens || 0;
+  const writeTip = (write5m + write1h)
+    ? ' data-tip="' + esc('5m：' + fmtInt(write5m) + '\n1h：' + fmtInt(write1h)) + '"'
+    : '';
   return '<tr>' +
     '<td' + (b.lastCallAt
       ? ' data-tip="' + esc('桶 ' + fmtLocalDT(b.bucketStart) + ' · 實際呼叫 ' +
@@ -1252,8 +1267,9 @@ function recRowHtml(b) {
     '<td class="name" data-tip="模型：' + esc(b.model || '—') + '">' + esc(b.model || '—') + '</td>' +
     '<td>' + fmtInt(b.inputTokens) + '</td>' +
     '<td style="font-weight:700">' + fmtInt(b.outputTokens) + '</td>' +
+    '<td>' + fmtInt(b.reasoningOutputTokens) + '</td>' +
     '<td>' + fmtInt(b.cachedInputTokens) + '</td>' +
-    '<td>' + fmtInt(b.cacheCreation5mTokens) + '</td>' +
+    '<td' + writeTip + '>' + fmtInt(write5m + write1h) + '</td>' +
     '<td class="cost ' + (cost ? 'unpriced' : 'priced') + '">' + (cost ? '未定價' : money(b.estimatedCost)) + '</td>' +
     '</tr>';
 }
@@ -1326,8 +1342,9 @@ function exportCsv() {
     ['model', (b) => b.model || ''],
     ['input_tokens', (b) => b.inputTokens ?? 0],
     ['output_tokens', (b) => b.outputTokens ?? 0],
+    ['reasoning_tokens', (b) => b.reasoningOutputTokens ?? 0],
     ['cache_read_tokens', (b) => b.cachedInputTokens ?? 0],
-    ['cache_write_tokens', (b) => b.cacheCreation5mTokens ?? 0],
+    ['cache_write_tokens', (b) => (b.cacheCreation5mTokens ?? 0) + (b.cacheCreation1hTokens ?? 0)],
     // Trim float noise only (1.2340000000002 → 1.234); sub-cent precision kept.
     ['estimated_cost_usd', (b) => b.estimatedCost == null ? '' : String(Number(b.estimatedCost.toFixed(6)))],
   ];
@@ -1404,6 +1421,7 @@ function reportHtml(meta, cur, pr, modelRows, toolRows, projectRows) {
     '</section><section><h2>Token 明細</h2><dl class="details">' +
     detail('輸入 Token', fmtTok(cur.input), reportDelta(cur.input, pr && pr.input)) +
     detail('輸出 Token', fmtTok(cur.output), reportDelta(cur.output, pr && pr.output)) +
+    detail('推理 Token', fmtTok(cur.reasoning), reportDelta(cur.reasoning, pr && pr.reasoning)) +
     detail('緩存讀取 Token', fmtTok(cur.cached), reportDelta(cur.cached, pr && pr.cached)) +
     detail('緩存寫入 Token', fmtTok(cur.cacheWrite), reportDelta(cur.cacheWrite, pr && pr.cacheWrite)) +
     detail('命中率', curRate == null ? '—' : (curRate * 100).toFixed(1) + '%', rateD) +

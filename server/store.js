@@ -110,7 +110,7 @@ export function ingestBuckets(data, incomingBuckets, incomingSessions) {
     }
     const key = bucketKey(b);
     const existing = byKey.get(key);
-    if (existing && existing.totalTokens >= b.totalTokens) {
+    if (existing && !incomingIsMoreComplete(existing, b)) {
       // Larger existing snapshot wins — smaller snapshot does not overwrite.
       stats.protected.buckets += 1;
       continue;
@@ -163,6 +163,31 @@ export function upsertQuotaSnapshots(data, hostname, incoming) {
 function isPlausible(b) {
   const t = Number(b.totalTokens ?? 0);
   if (t < 0 || t > 100_000_000_000) return false;
+  return true;
+}
+
+// Everything a bucket counted, cache reads included. totalTokens predates the
+// cache-read column and leaves it out, so comparing that field alone protected
+// a stale snapshot whenever a rescan only revised cache reads.
+function bucketTokenScore(b) {
+  const sum = Number(b.inputTokens ?? 0) + Number(b.outputTokens ?? 0)
+    + Number(b.reasoningOutputTokens ?? 0) + Number(b.cachedInputTokens ?? 0)
+    + Number(b.cacheCreation5mTokens ?? 0) + Number(b.cacheCreation1hTokens ?? 0);
+  return sum > 0 ? sum : Number(b.totalTokens ?? 0);
+}
+
+// Equal totals can still be a corrected breakdown (a 5m↔1h reclassification
+// leaves every total unchanged). Accept the incoming copy then, unless its call
+// window is demonstrably older than the stored one.
+function incomingIsMoreComplete(existing, incoming) {
+  const existingScore = bucketTokenScore(existing);
+  const incomingScore = bucketTokenScore(incoming);
+  if (incomingScore !== existingScore) return incomingScore > existingScore;
+  const incomingLast = Date.parse(incoming.lastCallAt);
+  const existingLast = Date.parse(existing.lastCallAt);
+  if (Number.isFinite(incomingLast) && Number.isFinite(existingLast)) {
+    return incomingLast >= existingLast;
+  }
   return true;
 }
 

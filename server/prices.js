@@ -34,9 +34,10 @@ export function loadPrices() {
 // Compute estimated cost for one bucket. Returns a number, or null if the
 // model is not in the price table.
 // formula: input*inputRate + output*outputRate + cachedInput*cacheReadRate
-//        + cacheCreation5m*cacheWriteRate
+//        + cacheCreation5m*cacheWriteRate + cacheCreation1h*cacheWrite1hRate
 // cacheWriteMtok is optional (missing = 0): models without a published
-// cache-write price keep their previous cost unchanged.
+// cache-write price keep their previous cost unchanged. A 1h cache write bills
+// at 2x the base input rate (Anthropic); cacheWrite1hMtok overrides that.
 export function estimateCost(bucket, prices = loadPrices()) {
   // Provider-scoped first: a router CLI (OpenCode) records which provider
   // actually billed the call (`commandcode`, `openai`, …), which can differ
@@ -51,13 +52,16 @@ export function estimateCost(bucket, prices = loadPrices()) {
     input: (entry.input ?? 0) / 1_000_000,
     output: (entry.output ?? 0) / 1_000_000,
     cacheRead: (entry.cacheReadMtok ?? 0) / 1_000_000,
-    cacheWrite: (entry.cacheWriteMtok ?? 0) / 1_000_000,
+    cacheWrite5m: (entry.cacheWriteMtok ?? 0) / 1_000_000,
+    cacheWrite1h: (entry.cacheWrite1hMtok ?? (entry.input ?? 0) * 2) / 1_000_000,
   };
   const input = Number(bucket.inputTokens ?? 0);
   const output = Number(bucket.outputTokens ?? 0);
   const cached = Number(bucket.cachedInputTokens ?? 0);
   const reasoning = Number(bucket.reasoningOutputTokens ?? 0);
-  const cacheWrite = Number(bucket.cacheCreation5mTokens ?? 0);
+  const cacheWrite5m = Number(bucket.cacheCreation5mTokens ?? 0);
+  const cacheWrite1h = Number(bucket.cacheCreation1hTokens ?? 0);
   return input * perToken.input + (output + reasoning) * perToken.output
-    + cached * perToken.cacheRead + cacheWrite * perToken.cacheWrite;
+    + cached * perToken.cacheRead + cacheWrite5m * perToken.cacheWrite5m
+    + cacheWrite1h * perToken.cacheWrite1h;
 }
