@@ -351,9 +351,15 @@ function trayRangeSeries(prices) {
 }
 
 // Per-model usage for the selected range, best-cost first: top 3 plus one
-// aggregated tail row. Token counting mirrors the tray title (new tokens:
-// cache reads excluded); formatting reuses trayFmtTok/trayMoney so panel and
-// tray strings agree. Trailing -20yymmdd date suffixes are stripped from names.
+// aggregated tail row. The model list counts new tokens (cache reads excluded)
+// so cost and volume stay comparable; the tray title keeps the cache-inclusive
+// total and shows the new-token count beside it. Trailing -20yymmdd date
+// suffixes are stripped from model names.
+function bucketTotalTokens(b) {
+  return (b.inputTokens || 0) + (b.outputTokens || 0) + (b.reasoningOutputTokens || 0)
+    + (b.cachedInputTokens || 0) + (b.cacheCreation5mTokens || 0) + (b.cacheCreation1hTokens || 0);
+}
+
 function bucketFreshTokens(b) {
   return (b.inputTokens || 0) + (b.outputTokens || 0) + (b.reasoningOutputTokens || 0)
     + (b.cacheCreation5mTokens || 0) + (b.cacheCreation1hTokens || 0);
@@ -509,13 +515,16 @@ async function updateTrayTitle() {
   const buckets = serverApi.filterBuckets(loadData().buckets, trayQueryParams());
   let cost = 0;
   let tokens = 0;
+  let fresh = 0;
   for (const b of buckets) {
     const c = estimateCost(b, prices);
     if (c != null) cost += c;
-    tokens += bucketFreshTokens(b);
+    tokens += bucketTotalTokens(b);
+    fresh += bucketFreshTokens(b);
   }
   const money = trayMoney(cost);
   const tok = trayFmtTok(tokens);
+  const freshTok = trayFmtTok(fresh);
   // The menu-bar strip hides its numbers when the range holds no usage — there
   // is nothing to glance at, and `$0.0000 / 0` just reads as noise. The popover
   // has room, so it keeps the real strings and shows the zero plainly.
@@ -529,6 +538,7 @@ async function updateTrayTitle() {
     label: trayRangeLabel(),
     cost: money,
     tok,
+    fresh: freshTok,
     cache: hit,
     asOf: trayDataAsOf(),
     delta: trayCostDelta(cost, prices),
@@ -683,7 +693,7 @@ const PANEL_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
   <div class="tok" id="tok"></div>
   <div class="asof" id="asof" hidden></div>
   <div id="summary">
-  <div class="section-title">模型成本排行 · 佔區間總成本</div>
+  <div class="section-title">模型成本排行 · 新 Token / 成本</div>
   <div id="models"></div>
   <div class="section-title">區間成本趨勢</div>
   <div id="bars"></div>
@@ -715,7 +725,7 @@ const PANEL_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
     } else {
       d.hidden = true;
     }
-    let tokText = '新 ' + o.tok + ' tokens';
+    let tokText = '總 ' + o.tok + '（新 ' + o.fresh + '）';
     if (o.cache) tokText += ' · 緩存讀 ' + o.cache.read + ' · 命中 ' + o.cache.hit + '%';
     document.getElementById('tok').textContent = tokText;
     const asof = document.getElementById('asof');
@@ -762,7 +772,7 @@ const PANEL_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
     for (const m of o.models) {
       const item = document.createElement('div');
       item.className = 'mitem';
-      item.title = m.model + ' — ' + m.tokens + ' tokens — ' + m.cost + ' (' + m.pct + '%)';
+      item.title = m.model + ' — 新 ' + m.tokens + ' tokens — ' + m.cost + ' (' + m.pct + '% 成本)';
       const row = document.createElement('div');
       row.className = 'mrow';
       const name = document.createElement('span');

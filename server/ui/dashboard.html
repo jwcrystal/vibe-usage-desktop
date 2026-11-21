@@ -68,7 +68,7 @@
   .empty { color: var(--text3); text-align: center; padding: 60px 0; font-size: 14px; }
   .unpriced-banner { background: color-mix(in srgb, #f59e0b 12%, var(--card)); border: 1px solid color-mix(in srgb, #f59e0b 45%, var(--border)); color: #fbbf24; border-radius: var(--radius); padding: 10px 14px; font-size: 12px; margin-bottom: 14px; cursor: help; }
 
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 20px; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
   .card .label { color: var(--text3); font-size: 11px; margin-bottom: 6px; }
   .card .label .help {
@@ -79,15 +79,12 @@
   .card .label .help:hover { background: var(--text3); color: var(--bg); }
   .card .value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .card .value.accent { color: var(--accent); }
-  .card .value.muted { color: var(--text2); }
   .card .hint { color: var(--text3); font-size: 10px; margin-top: 3px; }
   .card .hint.accent, .card .hint.up { color: var(--accent); }
   .card .hint.down { color: #f87171; }
   .card .delta { font-size: 11px; font-weight: 600; margin-top: 5px; font-variant-numeric: tabular-nums; }
   .card .delta.up { color: var(--accent); }
   .card .delta.down { color: #f87171; }
-  .group-title { color: var(--text3); font-size: 11px; margin: 0 0 8px; }
-  .cards + .group-title { margin-top: 4px; }
 
   .panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 20px; }
   .panel h2 { font-size: 13px; padding: 12px 16px; border-bottom: 1px solid var(--border); color: var(--text2); font-weight: 600; }
@@ -633,9 +630,9 @@ function render() {
   const hitLabel = curHit == null ? '命中率 —' : '命中率 ' + (curHit * 100).toFixed(1) + '%';
   const primaryCards = [
     { l: '總成本', v: money(cur.cost), accent: true, d: D(cur.cost, pr.cost) },
+    { l: '總 Token（含快取）', v: fmtTok(cur.total), help: '含快取讀；明細在下方', hint: '= 新 Token + 快取讀' },
     { l: '新 Token', v: fmtTok(cur.fresh), accent: true, help: '不含快取讀：輸入 + 快取寫 + 輸出 + 推理', hint: '輸入＋快取寫＋輸出＋推理' },
     { l: '快取讀 Token', v: fmtTok(cur.cached), hint: hitLabel + (hitDelta.txt ? ' · ' + hitDelta.txt : ''), hintClass: hitDelta.cls || 'accent' },
-    { l: '總 Token（含快取）', v: fmtTok(cur.total), muted: true, help: '新 Token + 快取讀', hint: '= 新 Token + 快取讀' },
   ];
   const detailCards = [
     { l: '輸入 Token', v: fmtTok(cur.input), d: D(cur.input, pr.input) },
@@ -670,12 +667,7 @@ function render() {
     unpricedHtml +
     quotasHtml +
     filterBar(raw) +
-    '<div class="group-title">主要指標</div>' +
-    '<div class="cards">' + primaryCards.map(cardHtml).join('') + '</div>' +
-    '<div class="group-title">Token 明細</div>' +
-    '<div class="cards">' + detailCards.map(cardHtml).join('') + '</div>' +
-    '<div class="group-title">活動</div>' +
-    '<div class="cards">' + activityCards.map(cardHtml).join('') + '</div>' +
+    '<div class="cards">' + [...primaryCards, ...detailCards, ...activityCards].map(cardHtml).join('') + '</div>' +
     '<div class="analytics-row">' + trendPanel(buckets) + heatmapPanel(buckets) + '</div>' +
     '<div class="donuts" data-reveal style="--d:.2s">' +
     donutCard('model', '按模型', buckets) +
@@ -1148,7 +1140,7 @@ function distData(buckets, key) {
 }
 // Current metric mode per dimension (cost | fresh | tokens). Cost and new
 // tokens are the useful comparisons; cache-inclusive totals are opt-in.
-let donutMode = { model: 'cost', source: 'fresh', project: 'fresh', hostname: 'fresh' };
+let donutMode = { model: 'tokens', source: 'tokens', project: 'tokens', hostname: 'tokens' };
 // Legend caps at the top 8; items beyond that collapse into one gray「其他」row
 // so ring, legend and center total always account for exactly the same data.
 const DONUT_TOP = 8;
@@ -1199,9 +1191,9 @@ function donutCard(key, title, buckets) {
   return '<div class="donut" data-donut="' + key + '">' +
     '<div class="dh"><h3>' + title + '</h3>' +
     '<div class="toggle">' +
+    '<button data-mode="tokens" class="' + (mode === 'tokens' ? 'active' : '') + '">Token</button>' +
     '<button data-mode="cost" class="' + (mode === 'cost' ? 'active' : '') + '">費用</button>' +
     '<button data-mode="fresh" class="' + (mode === 'fresh' ? 'active' : '') + '">新 Token</button>' +
-    '<button data-mode="tokens" class="' + (mode === 'tokens' ? 'active' : '') + '">含快取</button>' +
     '</div></div>' +
     '<div class="body">' +
     '<div class="ring" data-tip="' + esc(title + '\n' + centerLab + '：' + centerVal) + '" style="background:' + bg + '"><div class="hole"><span class="big">' + centerVal + '</span><span class="small">' + centerLab + '</span></div></div>' +
@@ -1445,7 +1437,7 @@ function reportHtml(meta, cur, pr, modelRows, toolRows, projectRows) {
     (meta.unpriced.length ? '<div class="warn">⚠ 未定價模型（費用未計入合計）：' + meta.unpriced.map(esc).join('、') + '</div>' : '') +
     '<section><h2>用量摘要</h2><div class="kpis">' +
     k('估算總成本 (USD)', money(cur.cost), reportDelta(cur.cost, pr && pr.cost)) +
-    k('新 Token', fmtTok(cur.fresh), reportDelta(cur.fresh, pr && pr.fresh)) +
+    k('總 Token（含快取）', fmtTok(cur.total), reportDelta(cur.total, pr && pr.total)) +
     k('活躍時長', fmtH(cur.active), reportDelta(cur.active, pr && pr.active)) +
     k('會話數', fmtInt(cur.sessions), reportDelta(cur.sessions, pr && pr.sessions)) +
     '</div>' +
@@ -1456,7 +1448,7 @@ function reportHtml(meta, cur, pr, modelRows, toolRows, projectRows) {
     detail('推理 Token', fmtTok(cur.reasoning), reportDelta(cur.reasoning, pr && pr.reasoning)) +
     detail('緩存讀取 Token', fmtTok(cur.cached), reportDelta(cur.cached, pr && pr.cached)) +
     detail('緩存寫入 Token', fmtTok(cur.cacheWrite), reportDelta(cur.cacheWrite, pr && pr.cacheWrite)) +
-    detail('總 Token（含快取）', fmtTok(cur.total), reportDelta(cur.total, pr && pr.total)) +
+    detail('新 Token', fmtTok(cur.fresh), reportDelta(cur.fresh, pr && pr.fresh)) +
     detail('命中率', curRate == null ? '—' : (curRate * 100).toFixed(1) + '%', rateD) +
     '</dl></section><section><h2>其他活動</h2><dl class="details">' +
     detail('總時長', fmtH(cur.duration), reportDelta(cur.duration, pr && pr.duration)) +
