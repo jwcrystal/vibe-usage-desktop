@@ -110,10 +110,20 @@ export function ingestBuckets(data, incomingBuckets, incomingSessions) {
     }
     const key = bucketKey(b);
     const existing = byKey.get(key);
-    if (existing && !incomingIsMoreComplete(existing, b)) {
-      // Larger existing snapshot wins — smaller snapshot does not overwrite.
-      stats.protected.buckets += 1;
-      continue;
+    if (existing) {
+      const existingVersion = Number(existing.tokensVersion ?? 1);
+      const incomingVersion = Number(b.tokensVersion ?? 1);
+      // A newer token schema carries a corrected count (e.g. a parser fix that
+      // stopped double-counting forked-session history). Let it replace the
+      // stored snapshot even when the corrected total is smaller. An older
+      // schema never overwrites a newer one, and equal schemas still use the
+      // completeness rule below.
+      if (incomingVersion < existingVersion
+        || (incomingVersion === existingVersion && !incomingIsMoreComplete(existing, b))) {
+        // Larger existing snapshot wins — smaller snapshot does not overwrite.
+        stats.protected.buckets += 1;
+        continue;
+      }
     }
     const stored = { ...b, estimatedCost: b.estimatedCost ?? null };
     byKey.set(key, stored);

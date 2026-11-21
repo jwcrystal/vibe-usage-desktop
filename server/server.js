@@ -318,6 +318,14 @@ const router = {
     const incomingBuckets = Array.isArray(payload.buckets) ? payload.buckets : [];
     const incomingSessions = Array.isArray(payload.sessions) ? payload.sessions : [];
 
+    // A newer token schema carries a corrected count (e.g. fork-copied history
+    // no longer double counted). Persist the version with each bucket so the
+    // store can let it replace an older, larger snapshot.
+    const tokenSchema = Number(payload.tokenSchema);
+    if (Number.isFinite(tokenSchema) && tokenSchema >= 2) {
+      for (const b of incomingBuckets) b.tokensVersion = tokenSchema;
+    }
+
     // Store raw tokens only. estimatedCost is computed at read time from the
     // live price table (prices.js/prices.json) so editing prices.json applies
     // to all existing data immediately — that is the whole point of 本地調價.
