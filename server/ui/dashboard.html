@@ -334,21 +334,34 @@
     .heat td.c { width: 3.6%; }
   }
 
-  /* Metric grid: the four primary cards keep their 2×2 block on the left
-     (wider), the six detail/efficiency cards fill a 3×2 block on the right.
-     Activity keeps its own five-column row. */
+  /* Metric grid: one 5-column grid so both rows share the same height. The
+     primary cards occupy columns 1-2 (2×2), the detail/efficiency cards
+     columns 3-5 (3×2). Activity keeps its own five-column row. */
   .group-label { color: var(--text3); font-size: 10px; font-weight: 600; letter-spacing: .08em; margin: 0 0 6px; }
-  .metric-group { min-width: 0; }
-  .metrics-row { display: grid; grid-template-columns: 1.4fr 1.6fr; gap: 12px; margin-bottom: 12px; }
-  .cards.primary { grid-template-columns: 1fr 1fr; margin-bottom: 0; }
-  .cards.detail { grid-template-columns: repeat(3, 1fr); margin-bottom: 0; }
+  .metrics-grid { display: grid; grid-template-columns: 1.4fr 1.4fr 1fr 1fr 1fr; column-gap: 12px; row-gap: 10px; margin-bottom: 12px; }
+  .metrics-grid > .group-label { margin: 0; }
+  .metrics-grid .group-label.primary { grid-column: 1 / 3; grid-row: 1; }
+  .metrics-grid .group-label.detail { grid-column: 3 / 6; grid-row: 1; }
+  .metrics-grid .card[data-cell="p1"] { grid-column: 1; grid-row: 2; }
+  .metrics-grid .card[data-cell="p2"] { grid-column: 2; grid-row: 2; }
+  .metrics-grid .card[data-cell="p3"] { grid-column: 1; grid-row: 3; }
+  .metrics-grid .card[data-cell="p4"] { grid-column: 2; grid-row: 3; }
+  .metrics-grid .card[data-cell="d1"] { grid-column: 3; grid-row: 2; }
+  .metrics-grid .card[data-cell="d2"] { grid-column: 4; grid-row: 2; }
+  .metrics-grid .card[data-cell="d3"] { grid-column: 5; grid-row: 2; }
+  .metrics-grid .card[data-cell="d4"] { grid-column: 3; grid-row: 3; }
+  .metrics-grid .card[data-cell="d5"] { grid-column: 4; grid-row: 3; }
+  .metrics-grid .card[data-cell="d6"] { grid-column: 5; grid-row: 3; }
   .cards.activity { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   @media (max-width: 900px) {
-    .metrics-row { grid-template-columns: 1fr; }
+    .metrics-grid { grid-template-columns: 1fr 1fr; row-gap: 8px; }
+    .metrics-grid .group-label.primary,
+    .metrics-grid .group-label.detail { grid-column: 1 / -1; grid-row: auto; }
+    .metrics-grid .card[data-cell] { grid-column: auto; grid-row: auto; }
     .cards.activity { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
   }
   @media (max-width: 480px) {
-    .cards.detail { grid-template-columns: 1fr 1fr; }
+    .metrics-grid { gap: 8px; }
     .cards.activity { grid-template-columns: 1fr 1fr; gap: 8px; }
   }
 </style>
@@ -649,18 +662,18 @@ function render() {
     : { txt: '', cls: '' };
   const hitLabel = curHit == null ? '命中率 —' : '命中率 ' + (curHit * 100).toFixed(1) + '%';
   const primaryCards = [
-    { l: '總成本', v: money(cur.cost), accent: true, d: D(cur.cost, pr.cost) },
-    { l: '總 Token（含快取）', v: fmtTok(cur.total), help: '含快取讀；明細在下方', hint: '= 新 Token + 快取讀' },
-    { l: '新 Token', v: fmtTok(cur.fresh), accent: true, help: '不含快取讀：輸入 + 快取寫 + 輸出 + 推理', hint: '輸入＋快取寫＋輸出＋推理' },
-    { l: '快取讀 Token', v: fmtTok(cur.cached), hint: hitLabel + (hitDelta.txt ? ' · ' + hitDelta.txt : ''), hintClass: hitDelta.cls || 'accent' },
+    { l: '總成本', v: money(cur.cost), accent: true, d: D(cur.cost, pr.cost), cell: 'p1' },
+    { l: '總 Token（含快取）', v: fmtTok(cur.total), help: '含快取讀；明細在下方', hint: '= 新 Token + 快取讀', cell: 'p2' },
+    { l: '新 Token', v: fmtTok(cur.fresh), accent: true, help: '不含快取讀：輸入 + 快取寫 + 輸出 + 推理', hint: '輸入＋快取寫＋輸出＋推理', cell: 'p3' },
+    { l: '快取讀 Token', v: fmtTok(cur.cached), hint: hitLabel + (hitDelta.txt ? ' · ' + hitDelta.txt : ''), hintClass: hitDelta.cls || 'accent', cell: 'p4' },
   ];
   const detailCards = [
-    { l: '輸入 Token', v: fmtTok(cur.input), d: D(cur.input, pr.input) },
-    { l: '輸出 Token', v: fmtTok(cur.output), d: D(cur.output, pr.output) },
-    { l: '推理 Token', v: fmtTok(cur.reasoning), d: D(cur.reasoning, pr.reasoning) },
-    { l: '快取寫 Token', v: fmtTok(cur.cacheWrite), d: D(cur.cacheWrite, pr.cacheWrite), help: '5m 與 1h 快取寫分開計價', hint: '5m ' + fmtTok(cur.cacheWrite5m) + ' · 1h ' + fmtTok(cur.cacheWrite1h) },
-    { l: '每 1M 成本', v: moneySmall(cur.total > 0 ? cur.cost / (cur.total / 1e6) : null), help: '成本 ÷ 總 Token', hint: '成本 ÷ 總 Token' },
-    { l: '單會話成本', v: moneySmall(cur.sessions > 0 ? cur.cost / cur.sessions : null), help: '成本 ÷ 會話數', hint: '成本 ÷ 會話數' },
+    { l: '輸入 Token', v: fmtTok(cur.input), d: D(cur.input, pr.input), cell: 'd1' },
+    { l: '輸出 Token', v: fmtTok(cur.output), d: D(cur.output, pr.output), cell: 'd2' },
+    { l: '推理 Token', v: fmtTok(cur.reasoning), d: D(cur.reasoning, pr.reasoning), cell: 'd3' },
+    { l: '快取寫 Token', v: fmtTok(cur.cacheWrite), d: D(cur.cacheWrite, pr.cacheWrite), help: '5m 與 1h 快取寫分開計價', hint: '5m ' + fmtTok(cur.cacheWrite5m) + ' · 1h ' + fmtTok(cur.cacheWrite1h), cell: 'd4' },
+    { l: '每 1M 成本', v: moneySmall(cur.total > 0 ? cur.cost / (cur.total / 1e6) : null), help: '成本 ÷ 總 Token', hint: '成本 ÷ 總 Token', cell: 'd5' },
+    { l: '單會話成本', v: moneySmall(cur.sessions > 0 ? cur.cost / cur.sessions : null), help: '成本 ÷ 會話數', hint: '成本 ÷ 會話數', cell: 'd6' },
   ];
   const activityCards = [
     { l: 'Active 時長', v: fmtH(cur.active), accent: true, d: D(cur.active, pr.active), help: ACTIVE_HELP },
@@ -670,7 +683,7 @@ function render() {
     { l: '用戶消息數', v: fmtInt(cur.userMsgs), d: D(cur.userMsgs, pr.userMsgs) },
   ];
   const cardHtml = (c, i) =>
-    '<div class="card" data-reveal data-tip="' + esc(c.l + '\n目前：' + c.v + (c.hint ? '\n' + c.hint : '') + (c.d && c.d.txt ? '\n較上一時段：' + c.d.txt : '')) + '" style="--d:' + (i * 0.04) + 's"><div class="label">' + c.l +
+    '<div class="card"' + (c.cell ? ' data-cell="' + c.cell + '"' : '') + ' data-reveal data-tip="' + esc(c.l + '\n目前：' + c.v + (c.hint ? '\n' + c.hint : '') + (c.d && c.d.txt ? '\n較上一時段：' + c.d.txt : '')) + '" style="--d:' + (i * 0.04) + 's"><div class="label">' + c.l +
     (c.help ? '<span class="help" data-tip="' + esc(c.help) + '">?</span>' : '') +
     '</div>' +
     '<div class="value' + (c.accent ? ' accent' : '') + (c.muted ? ' muted' : '') + '">' + c.v + '</div>' +
@@ -689,9 +702,11 @@ function render() {
     unpricedHtml +
     quotasHtml +
     filterBar(raw) +
-    '<div class="metrics-row">' +
-    '<div class="metric-group"><div class="group-label">主要指標</div><div class="cards primary">' + primaryCards.map(cardHtml).join('') + '</div></div>' +
-    '<div class="metric-group"><div class="group-label">Token 明細 / 效率</div><div class="cards detail">' + detailCards.map(cardHtml).join('') + '</div></div>' +
+    '<div class="metrics-grid">' +
+    '<div class="group-label primary">主要指標</div>' +
+    primaryCards.map(cardHtml).join('') +
+    '<div class="group-label detail">Token 明細 / 效率</div>' +
+    detailCards.map(cardHtml).join('') +
     '</div>' +
     '<div class="group-label">活動</div>' +
     '<div class="cards activity">' + activityCards.map(cardHtml).join('') + '</div>' +

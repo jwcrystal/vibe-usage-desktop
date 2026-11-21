@@ -525,6 +525,7 @@ async function updateTrayTitle() {
   const money = trayMoney(cost);
   const tok = trayFmtTok(tokens);
   const freshTok = trayFmtTok(fresh);
+  const newPct = tokens > 0 ? (fresh / tokens) * 100 : 0;
   // The menu-bar strip hides its numbers when the range holds no usage — there
   // is nothing to glance at, and `$0.0000 / 0` just reads as noise. The popover
   // has room, so it keeps the real strings and shows the zero plainly.
@@ -539,6 +540,7 @@ async function updateTrayTitle() {
     cost: money,
     tok,
     fresh: freshTok,
+    newPct,
     cache: hit,
     asOf: trayDataAsOf(),
     delta: trayCostDelta(cost, prices),
@@ -639,7 +641,15 @@ const PANEL_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
   .delta { font-size: 11px; font-weight: 600; color: #858585; font-variant-numeric: tabular-nums; }
   .delta.up { color: #33cc99; }
   .delta.down { color: #f87171; }
-  .tok { font-size: 12px; color: #a1a1a1; font-variant-numeric: tabular-nums; }
+  .tstats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .tstat { min-width: 0; background: #1f1f1f; border: 1px solid #292929; border-radius: 4px; padding: 5px 8px; }
+  .tstat span { display: block; font-size: 9px; color: #858585; }
+  .tstat b { display: block; margin-top: 1px; font-size: 13px; font-weight: 700; color: #ffffff; font-variant-numeric: tabular-nums; }
+  .tstat.accent b { color: #33cc99; }
+  .tbar { height: 6px; border-radius: 3px; background: #3a3a3a; overflow: hidden; }
+  .tbar i { display: block; height: 100%; width: 0; background: #33cc99; border-radius: 3px; }
+  .tbarlbl { display: flex; justify-content: space-between; margin-top: 2px; font-size: 8px; color: #858585; font-variant-numeric: tabular-nums; }
+  .tbarlbl span:first-child { color: #33cc99; }
   .asof { font-size: 10px; color: #858585; font-variant-numeric: tabular-nums; }
   .foot { display: flex; gap: 6px; margin-top: 2px; }
   #summary { flex: 1; min-height: 0; overflow-y: auto; }
@@ -690,10 +700,17 @@ const PANEL_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
     <button data-kind="preset" data-days="30">30D</button>
   </div>
   <div class="costr"><span class="cost" id="cost"></span><span class="delta" id="delta" hidden></span></div>
-  <div class="tok" id="tok"></div>
+  <div class="tstats">
+    <div class="tstat"><span>總 Token</span><b id="t-total">—</b></div>
+    <div class="tstat accent"><span>新 Token</span><b id="t-fresh">—</b></div>
+    <div class="tstat"><span>快取讀</span><b id="t-cache">—</b></div>
+    <div class="tstat accent"><span>命中率</span><b id="t-hit">—</b></div>
+  </div>
+  <div class="tbar"><i id="tbar-new"></i></div>
+  <div class="tbarlbl"><span id="tbar-new-lbl">新 0%</span><span id="tbar-cache-lbl">快取 0%</span></div>
   <div class="asof" id="asof" hidden></div>
   <div id="summary">
-  <div class="section-title">模型成本排行 · 新 Token / 成本</div>
+  <div class="section-title">模型 · 新 Token / 成本</div>
   <div id="models"></div>
   <div class="section-title">區間成本趨勢</div>
   <div id="bars"></div>
@@ -725,9 +742,14 @@ const PANEL_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
     } else {
       d.hidden = true;
     }
-    let tokText = '總 ' + o.tok + '（新 ' + o.fresh + '）';
-    if (o.cache) tokText += ' · 緩存讀 ' + o.cache.read + ' · 命中 ' + o.cache.hit + '%';
-    document.getElementById('tok').textContent = tokText;
+    document.getElementById('t-total').textContent = o.tok;
+    document.getElementById('t-fresh').textContent = o.fresh;
+    document.getElementById('t-cache').textContent = o.cache ? o.cache.read : '—';
+    document.getElementById('t-hit').textContent = o.cache ? o.cache.hit + '%' : '—';
+    const newPct = o.newPct || 0;
+    document.getElementById('tbar-new').style.width = (newPct > 0 ? Math.max(1, newPct) : 0) + '%';
+    document.getElementById('tbar-new-lbl').textContent = '新 ' + newPct.toFixed(1) + '%';
+    document.getElementById('tbar-cache-lbl').textContent = '快取 ' + (100 - newPct).toFixed(1) + '%';
     const asof = document.getElementById('asof');
     asof.hidden = !o.asOf;
     if (o.asOf) asof.textContent = '更新於 ' + o.asOf;
