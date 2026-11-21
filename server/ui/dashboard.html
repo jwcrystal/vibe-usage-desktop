@@ -79,10 +79,15 @@
   .card .label .help:hover { background: var(--text3); color: var(--bg); }
   .card .value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .card .value.accent { color: var(--accent); }
+  .card .value.muted { color: var(--text2); }
   .card .hint { color: var(--text3); font-size: 10px; margin-top: 3px; }
+  .card .hint.accent, .card .hint.up { color: var(--accent); }
+  .card .hint.down { color: #f87171; }
   .card .delta { font-size: 11px; font-weight: 600; margin-top: 5px; font-variant-numeric: tabular-nums; }
   .card .delta.up { color: var(--accent); }
   .card .delta.down { color: #f87171; }
+  .group-title { color: var(--text3); font-size: 11px; margin: 0 0 8px; }
+  .cards + .group-title { margin-top: 4px; }
 
   .panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 20px; }
   .panel h2 { font-size: 13px; padding: 12px 16px; border-bottom: 1px solid var(--border); color: var(--text2); font-weight: 600; }
@@ -528,20 +533,26 @@ function renderIfChanged() {
 // win = { min, max } (absolute ms) clips session duration to the visible window,
 // so a long-lived session counts only its portion inside the range.
 function sumMetrics(buckets, sess, win) {
-  return {
+  const m = {
     cost: buckets.reduce((s, b) => s + (b.estimatedCost || 0), 0),
     total: buckets.reduce((s, b) => s + computeTotal(b), 0),
     input: buckets.reduce((s, b) => s + (b.inputTokens || 0), 0),
     output: buckets.reduce((s, b) => s + (b.outputTokens || 0), 0),
     reasoning: buckets.reduce((s, b) => s + (b.reasoningOutputTokens || 0), 0),
     cached: buckets.reduce((s, b) => s + (b.cachedInputTokens || 0), 0),
-    cacheWrite: buckets.reduce((s, b) => s + (b.cacheCreation5mTokens || 0) + (b.cacheCreation1hTokens || 0), 0),
+    cacheWrite5m: buckets.reduce((s, b) => s + (b.cacheCreation5mTokens || 0), 0),
+    cacheWrite1h: buckets.reduce((s, b) => s + (b.cacheCreation1hTokens || 0), 0),
     active: sess.reduce((s, x) => s + (x.activeSeconds || 0), 0),
     duration: sess.reduce((s, x) => s + clippedDuration(x, win), 0),
     sessions: sess.length,
     msgs: sess.reduce((s, x) => s + (x.messageCount || 0), 0),
     userMsgs: sess.reduce((s, x) => s + (x.userMessageCount || 0), 0),
   };
+  m.cacheWrite = m.cacheWrite5m + m.cacheWrite1h;
+  // Everything except cache reads: the tokens actually processed this period
+  // rather than the context re-read from the prompt cache.
+  m.fresh = m.input + m.output + m.reasoning + m.cacheWrite;
+  return m;
 }
 
 // Portion of a session's wall-clock span that lies inside [win.min, win.max].
@@ -619,15 +630,20 @@ function render() {
       ? { txt: '持平', cls: '' }
       : { txt: (curHit > prHit ? '+' : '') + ((curHit - prHit) * 100).toFixed(1) + 'pp', cls: curHit >= prHit ? 'up' : 'down' })
     : { txt: '', cls: '' };
-  const cards = [
+  const hitLabel = curHit == null ? '命中率 —' : '命中率 ' + (curHit * 100).toFixed(1) + '%';
+  const primaryCards = [
     { l: '總成本', v: money(cur.cost), accent: true, d: D(cur.cost, pr.cost) },
-    { l: '總 Token', v: fmtTok(cur.total), d: D(cur.total, pr.total) },
+    { l: '新 Token', v: fmtTok(cur.fresh), accent: true, help: '不含快取讀：輸入 + 快取寫 + 輸出 + 推理', hint: '輸入＋快取寫＋輸出＋推理' },
+    { l: '快取讀 Token', v: fmtTok(cur.cached), hint: hitLabel + (hitDelta.txt ? ' · ' + hitDelta.txt : ''), hintClass: hitDelta.cls || 'accent' },
+    { l: '總 Token（含快取）', v: fmtTok(cur.total), muted: true, help: '新 Token + 快取讀', hint: '= 新 Token + 快取讀' },
+  ];
+  const detailCards = [
     { l: '輸入 Token', v: fmtTok(cur.input), d: D(cur.input, pr.input) },
     { l: '輸出 Token', v: fmtTok(cur.output), d: D(cur.output, pr.output) },
     { l: '推理 Token', v: fmtTok(cur.reasoning), d: D(cur.reasoning, pr.reasoning) },
-    { l: '緩存讀 Token', v: fmtTok(cur.cached), d: D(cur.cached, pr.cached) },
-    { l: '緩存寫 Token', v: fmtTok(cur.cacheWrite), d: D(cur.cacheWrite, pr.cacheWrite) },
-    { l: '命中率', v: curHit == null ? '—' : (curHit * 100).toFixed(1) + '%', d: hitDelta },
+    { l: '快取寫 Token', v: fmtTok(cur.cacheWrite), d: D(cur.cacheWrite, pr.cacheWrite), help: '5m 與 1h 快取寫分開計價', hint: '5m ' + fmtTok(cur.cacheWrite5m) + ' · 1h ' + fmtTok(cur.cacheWrite1h) },
+  ];
+  const activityCards = [
     { l: 'Active 時長', v: fmtH(cur.active), accent: true, d: D(cur.active, pr.active), help: ACTIVE_HELP },
     { l: '總時長', v: fmtH(cur.duration), d: D(cur.duration, pr.duration), help: DURATION_HELP },
     { l: '會話數', v: fmtInt(cur.sessions), d: D(cur.sessions, pr.sessions) },
@@ -635,11 +651,12 @@ function render() {
     { l: '用戶消息數', v: fmtInt(cur.userMsgs), d: D(cur.userMsgs, pr.userMsgs) },
   ];
   const cardHtml = (c, i) =>
-    '<div class="card" data-reveal data-tip="' + esc(c.l + '\n目前：' + c.v + (c.d.txt ? '\n較上一時段：' + c.d.txt : '')) + '" style="--d:' + (i * 0.04) + 's"><div class="label">' + c.l +
+    '<div class="card" data-reveal data-tip="' + esc(c.l + '\n目前：' + c.v + (c.hint ? '\n' + c.hint : '') + (c.d && c.d.txt ? '\n較上一時段：' + c.d.txt : '')) + '" style="--d:' + (i * 0.04) + 's"><div class="label">' + c.l +
     (c.help ? '<span class="help" data-tip="' + esc(c.help) + '">?</span>' : '') +
     '</div>' +
-    '<div class="value' + (c.accent ? ' accent' : '') + '">' + c.v + '</div>' +
-    (c.d.txt ? '<div class="delta ' + c.d.cls + '">' + c.d.txt + '</div>' : '') +
+    '<div class="value' + (c.accent ? ' accent' : '') + (c.muted ? ' muted' : '') + '">' + c.v + '</div>' +
+    (c.hint ? '<div class="hint ' + (c.hintClass || '') + '">' + c.hint + '</div>' : '') +
+    (c.d && c.d.txt ? '<div class="delta ' + c.d.cls + '">' + c.d.txt + '</div>' : '') +
     '</div>';
   // Warning banner when some models in range have no price entry — their cost
   // is silently excluded from the KPIs. Full model list in the hover tooltip.
@@ -653,7 +670,12 @@ function render() {
     unpricedHtml +
     quotasHtml +
     filterBar(raw) +
-    '<div class="cards">' + cards.map(cardHtml).join('') + '</div>' +
+    '<div class="group-title">主要指標</div>' +
+    '<div class="cards">' + primaryCards.map(cardHtml).join('') + '</div>' +
+    '<div class="group-title">Token 明細</div>' +
+    '<div class="cards">' + detailCards.map(cardHtml).join('') + '</div>' +
+    '<div class="group-title">活動</div>' +
+    '<div class="cards">' + activityCards.map(cardHtml).join('') + '</div>' +
     '<div class="analytics-row">' + trendPanel(buckets) + heatmapPanel(buckets) + '</div>' +
     '<div class="donuts" data-reveal style="--d:.2s">' +
     donutCard('model', '按模型', buckets) +
@@ -896,9 +918,13 @@ function quotaPanel(snapshots, mode, manage) {
     '</section>';
 }
 
-function computeTotal(b) {
+function freshTokens(b) {
   return (b.inputTokens || 0) + (b.outputTokens || 0) + (b.reasoningOutputTokens || 0) +
-    (b.cachedInputTokens || 0) + (b.cacheCreation5mTokens || 0) + (b.cacheCreation1hTokens || 0);
+    (b.cacheCreation5mTokens || 0) + (b.cacheCreation1hTokens || 0);
+}
+
+function computeTotal(b) {
+  return freshTokens(b) + (b.cachedInputTokens || 0);
 }
 
 // Human label for the active range (used in meta + prev-window delta).
@@ -1107,33 +1133,36 @@ function trendPanel(buckets) {
 const DONUT_COLORS = ['#33cc99', '#3b82f6', '#f59e0b', '#ef4444', '#a855f7', '#06b6d4', '#f97316', '#84cc16'];
 // "其他" aggregate color for items past the top 8 (kept distinct from real categories).
 const OTHER_COLOR = '#64748b';
-// Per-dimension distribution: [{ name, tokens, cost }] sorted by cost desc.
+// Per-dimension distribution: [{ name, tokens, fresh, cost }] sorted by cost desc.
 function distData(buckets, key) {
   const m = new Map();
   for (const b of buckets) {
     const k = String(b[key] || 'unknown');
-    const e = m.get(k) || { name: k, tokens: 0, cost: 0 };
+    const e = m.get(k) || { name: k, tokens: 0, fresh: 0, cost: 0 };
     e.tokens += computeTotal(b);
+    e.fresh += freshTokens(b);
     e.cost += b.estimatedCost || 0;
     m.set(k, e);
   }
   return [...m.values()].sort((a, b) => b.cost - a.cost);
 }
-// Current metric mode per dimension (tokens | cost).
-let donutMode = { model: 'tokens', source: 'tokens', project: 'tokens', hostname: 'tokens' };
+// Current metric mode per dimension (cost | fresh | tokens). Cost and new
+// tokens are the useful comparisons; cache-inclusive totals are opt-in.
+let donutMode = { model: 'cost', source: 'fresh', project: 'fresh', hostname: 'fresh' };
 // Legend caps at the top 8; items beyond that collapse into one gray「其他」row
 // so ring, legend and center total always account for exactly the same data.
 const DONUT_TOP = 8;
 function donutCard(key, title, buckets) {
   const data2 = distData(buckets, key);
-  const mode = donutMode[key] || 'tokens';
-  const val = (e) => mode === 'tokens' ? e.tokens : e.cost;
+  const mode = donutMode[key] || 'cost';
+  const val = (e) => mode === 'tokens' ? e.tokens : mode === 'fresh' ? e.fresh : e.cost;
   const total = data2.reduce((s, e) => s + val(e), 0);
   const top = data2.slice(0, DONUT_TOP);
   const rest = data2.slice(DONUT_TOP);
   const other = rest.length ? {
     name: '其他（' + rest.length + '）',
     tokens: rest.reduce((s, e) => s + e.tokens, 0),
+    fresh: rest.reduce((s, e) => s + e.fresh, 0),
     cost: rest.reduce((s, e) => s + e.cost, 0),
     items: rest,
   } : null;
@@ -1146,30 +1175,33 @@ function donutCard(key, title, buckets) {
     return (e === other ? OTHER_COLOR : DONUT_COLORS[i]) + ' ' + from + '% ' + to + '%';
   }).join(', ');
   const bg = total > 0 ? 'conic-gradient(' + stops + ')' : 'var(--bg)';
-  const centerVal = mode === 'tokens' ? fmtTok(total) : money(total);
-  const centerLab = mode === 'tokens' ? 'Tokens' : '費用';
+  const centerVal = mode === 'cost' ? money(total) : fmtTok(total);
+  const centerLab = mode === 'cost' ? '費用' : mode === 'fresh' ? '新 Token' : '含快取';
+  const fmtVal = (e) => mode === 'cost' ? money(e.cost) : fmtTok(mode === 'fresh' ? e.fresh : e.tokens);
+  const valLabel = mode === 'cost' ? '費用' : mode === 'fresh' ? '新 Token' : 'Token（含快取）';
   const lgRow = (e, i) => {
     const isOther = e === other;
     // "其他" tooltip lists the collapsed items so the row is never a dead end.
     const tip = isOther
       ? e.name + '\n' + e.items.slice(0, 10).map((x) =>
-          '· ' + x.name + '：' + (mode === 'tokens' ? fmtTok(x.tokens) : money(x.cost)) + '（' + pct(val(x), total) + '）').join('\n') +
+          '· ' + x.name + '：' + fmtVal(x) + '（' + pct(val(x), total) + '）').join('\n') +
         (e.items.length > 10 ? '\n…另有 ' + (e.items.length - 10) + ' 項' : '')
-      : e.name + '\n' + (mode === 'tokens' ? 'Token：' + fmtInt(e.tokens) : '費用：' + money(e.cost)) + '\n佔比：' + pct(val(e), total);
+      : e.name + '\n' + valLabel + '：' + fmtVal(e) + '\n佔比：' + pct(val(e), total);
     const dotStyle = isOther
       ? 'border:1px dashed ' + OTHER_COLOR + ';background:transparent'
       : 'background:' + DONUT_COLORS[i];
     return '<div class="lg" data-tip="' + esc(tip) + '"><span class="dot" style="' + dotStyle + '"></span>' +
       '<span class="nm">' + esc(e.name) + '</span>' +
-      '<span class="vv">' + (mode === 'tokens' ? fmtTok(e.tokens) : money(e.cost)) + '</span>' +
+      '<span class="vv">' + fmtVal(e) + '</span>' +
       '<span class="pp">' + pct(val(e), total) + '</span></div>';
   };
   const lgs = slices.map(lgRow).join('');
   return '<div class="donut" data-donut="' + key + '">' +
     '<div class="dh"><h3>' + title + '</h3>' +
     '<div class="toggle">' +
-    '<button data-mode="tokens" class="' + (mode === 'tokens' ? 'active' : '') + '">Token</button>' +
     '<button data-mode="cost" class="' + (mode === 'cost' ? 'active' : '') + '">費用</button>' +
+    '<button data-mode="fresh" class="' + (mode === 'fresh' ? 'active' : '') + '">新 Token</button>' +
+    '<button data-mode="tokens" class="' + (mode === 'tokens' ? 'active' : '') + '">含快取</button>' +
     '</div></div>' +
     '<div class="body">' +
     '<div class="ring" data-tip="' + esc(title + '\n' + centerLab + '：' + centerVal) + '" style="background:' + bg + '"><div class="hole"><span class="big">' + centerVal + '</span><span class="small">' + centerLab + '</span></div></div>' +
@@ -1413,7 +1445,7 @@ function reportHtml(meta, cur, pr, modelRows, toolRows, projectRows) {
     (meta.unpriced.length ? '<div class="warn">⚠ 未定價模型（費用未計入合計）：' + meta.unpriced.map(esc).join('、') + '</div>' : '') +
     '<section><h2>用量摘要</h2><div class="kpis">' +
     k('估算總成本 (USD)', money(cur.cost), reportDelta(cur.cost, pr && pr.cost)) +
-    k('總 Token', fmtTok(cur.total), reportDelta(cur.total, pr && pr.total)) +
+    k('新 Token', fmtTok(cur.fresh), reportDelta(cur.fresh, pr && pr.fresh)) +
     k('活躍時長', fmtH(cur.active), reportDelta(cur.active, pr && pr.active)) +
     k('會話數', fmtInt(cur.sessions), reportDelta(cur.sessions, pr && pr.sessions)) +
     '</div>' +
@@ -1424,6 +1456,7 @@ function reportHtml(meta, cur, pr, modelRows, toolRows, projectRows) {
     detail('推理 Token', fmtTok(cur.reasoning), reportDelta(cur.reasoning, pr && pr.reasoning)) +
     detail('緩存讀取 Token', fmtTok(cur.cached), reportDelta(cur.cached, pr && pr.cached)) +
     detail('緩存寫入 Token', fmtTok(cur.cacheWrite), reportDelta(cur.cacheWrite, pr && pr.cacheWrite)) +
+    detail('總 Token（含快取）', fmtTok(cur.total), reportDelta(cur.total, pr && pr.total)) +
     detail('命中率', curRate == null ? '—' : (curRate * 100).toFixed(1) + '%', rateD) +
     '</dl></section><section><h2>其他活動</h2><dl class="details">' +
     detail('總時長', fmtH(cur.duration), reportDelta(cur.duration, pr && pr.duration)) +
