@@ -337,6 +337,8 @@
   /* Metric grid: the four primary cards keep their 2×2 block on the left
      (wider), the six detail/efficiency cards fill a 3×2 block on the right.
      Activity keeps its own five-column row. */
+  .group-label { color: var(--text3); font-size: 10px; font-weight: 600; letter-spacing: .08em; margin: 0 0 6px; }
+  .metric-group { min-width: 0; }
   .metrics-row { display: grid; grid-template-columns: 1.4fr 1.6fr; gap: 12px; margin-bottom: 12px; }
   .cards.primary { grid-template-columns: 1fr 1fr; margin-bottom: 0; }
   .cards.detail { grid-template-columns: repeat(3, 1fr); margin-bottom: 0; }
@@ -688,9 +690,10 @@ function render() {
     quotasHtml +
     filterBar(raw) +
     '<div class="metrics-row">' +
-    '<div class="cards primary">' + primaryCards.map(cardHtml).join('') + '</div>' +
-    '<div class="cards detail">' + detailCards.map(cardHtml).join('') + '</div>' +
+    '<div class="metric-group"><div class="group-label">主要指標</div><div class="cards primary">' + primaryCards.map(cardHtml).join('') + '</div></div>' +
+    '<div class="metric-group"><div class="group-label">Token 明細 / 效率</div><div class="cards detail">' + detailCards.map(cardHtml).join('') + '</div></div>' +
     '</div>' +
+    '<div class="group-label">活動</div>' +
     '<div class="cards activity">' + activityCards.map(cardHtml).join('') + '</div>' +
     '<div class="analytics-row">' + trendPanel(buckets) + heatmapPanel(buckets) + '</div>' +
     '<div class="donuts" data-reveal style="--d:.2s">' +
